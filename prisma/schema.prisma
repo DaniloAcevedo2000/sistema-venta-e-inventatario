@@ -1,0 +1,210 @@
+// ============================================
+// MOMOTO CAFÉ - SISTEMA DE VENTAS E INVENTARIO
+// Schema de base de datos
+// ============================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// SEGURIDAD Y USUARIOS
+// ============================================
+
+model Usuario {
+  id             String  @id @default(cuid())
+  nombre         String
+  correo         String  @unique
+  contrasenaHash String  @map("contrasena_hash")
+  activo         Boolean @default(true)
+  telefono       String?
+  avatarUrl      String? @map("avatar_url")
+
+  // Relaciones
+  roles      UsuarioRol[]
+  sucursalId String?      @map("sucursal_id")
+  sucursal   Sucursal?    @relation(fields: [sucursalId], references: [id])
+
+  // NextAuth (sessions)
+  cuentas  Cuenta[]
+  sesiones Sesion[]
+
+  // Auditoría
+  auditorias Auditoria[]
+
+  // Timestamps
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+  ultimoAcceso  DateTime? @map("ultimo_acceso")
+
+  @@index([correo])
+  @@index([sucursalId])
+  @@map("usuarios")
+}
+
+model Rol {
+  id          String  @id @default(cuid())
+  codigo      String  @unique // "SUPER_ADMIN", "CAJERO", etc.
+  nombre      String // "Super Administrador", "Cajero"
+  descripcion String?
+  esSistema   Boolean @default(false) @map("es_sistema") // roles base no editables
+  activo      Boolean @default(true)
+
+  usuarios UsuarioRol[]
+  permisos RolPermiso[]
+
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@map("roles")
+}
+
+model Permiso {
+  id          String  @id @default(cuid())
+  codigo      String  @unique // "ventas:crear"
+  nombre      String // "Crear ventas"
+  grupo       String // "Ventas", "Inventario", etc.
+  descripcion String?
+
+  roles RolPermiso[]
+
+  creadoEn DateTime @default(now()) @map("creado_en")
+
+  @@index([grupo])
+  @@map("permisos")
+}
+
+model UsuarioRol {
+  usuarioId  String   @map("usuario_id")
+  rolId      String   @map("rol_id")
+  asignadoEn DateTime @default(now()) @map("asignado_en")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, rolId])
+  @@map("usuarios_roles")
+}
+
+model RolPermiso {
+  rolId      String   @map("rol_id")
+  permisoId  String   @map("permiso_id")
+  asignadoEn DateTime @default(now()) @map("asignado_en")
+
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+
+  @@id([rolId, permisoId])
+  @@map("roles_permisos")
+}
+
+// ============================================
+// SUCURSALES
+// ============================================
+
+model Sucursal {
+  id        String  @id @default(cuid())
+  codigo    String  @unique // "CENTRAL", "NORTE"
+  nombre    String
+  direccion String?
+  telefono  String?
+  correo    String?
+  activa    Boolean @default(true)
+
+  usuarios Usuario[]
+  // Más relaciones se agregarán: cajas, ventas, stock, etc.
+
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@map("sucursales")
+}
+
+// ============================================
+// CONFIGURACIÓN DEL NEGOCIO
+// ============================================
+
+model Configuracion {
+  id          String  @id @default(cuid())
+  clave       String  @unique
+  valor       String
+  descripcion String?
+  tipo        String  @default("string") // string, number, boolean, json
+
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@map("configuracion")
+}
+
+// ============================================
+// AUDITORÍA
+// ============================================
+
+model Auditoria {
+  id           String   @id @default(cuid())
+  usuarioId    String?  @map("usuario_id")
+  usuario      Usuario? @relation(fields: [usuarioId], references: [id])
+  accion       String // "venta.crear", "producto.eliminar"
+  entidadTipo  String   @map("entidad_tipo")
+  entidadId    String?  @map("entidad_id")
+  datosAntes   Json?    @map("datos_antes")
+  datosDespues Json?    @map("datos_despues")
+  ip           String?
+  userAgent    String?  @map("user_agent")
+
+  creadoEn DateTime @default(now()) @map("creado_en")
+
+  @@index([usuarioId])
+  @@index([accion])
+  @@index([entidadTipo, entidadId])
+  @@index([creadoEn])
+  @@map("auditorias")
+}
+
+// ============================================
+// NEXTAUTH - TABLAS REQUERIDAS
+// ============================================
+
+model Cuenta {
+  id           String  @id @default(cuid())
+  usuarioId    String  @map("usuario_id")
+  tipo         String
+  proveedor    String  @map("proveedor")
+  proveedorId  String  @map("proveedor_id")
+  refreshToken String? @map("refresh_token") @db.Text
+  accessToken  String? @map("access_token") @db.Text
+  expiraEn     Int?    @map("expira_en")
+  tokenType    String? @map("token_type")
+  scope        String?
+  idToken      String? @map("id_token") @db.Text
+  sessionState String? @map("session_state")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([proveedor, proveedorId])
+  @@map("cuentas")
+}
+
+model Sesion {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  usuarioId    String   @map("usuario_id")
+  expira       DateTime
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("sesiones")
+}
+
+model TokenVerificacion {
+  identificador String   @unique
+  token         String   @unique
+  expira        DateTime
+
+  @@map("tokens_verificacion")
+}
