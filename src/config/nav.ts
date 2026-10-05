@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Building2,
   Settings,
+  Boxes,  // ← nuevo icono para insumos
 } from 'lucide-react'
 
 export type NavItem = {
@@ -42,6 +43,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { title: 'Productos', href: '/productos', icon: Package, permission: 'productos:leer' },
       { title: 'Categorías', href: '/categorias', icon: FolderTree, permission: 'categorias:gestionar' },
+      { title: 'Insumos', href: '/insumos', icon: Boxes, permission: 'inventario:leer' },  // ← NUEVO
       { title: 'Recetas', href: '/recetas', icon: ChefHat, permission: 'productos:leer' },
     ],
   },

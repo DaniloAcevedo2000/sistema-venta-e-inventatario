@@ -18,9 +18,11 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      <SidebarInset className="flex flex-col w-full min-w-0">
         <AppNavbar />
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 w-full p-4 md:p-6 lg:p-8 overflow-x-hidden">
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   )
