@@ -79,6 +79,7 @@ export const navGroups: NavGroup[] = [
       { title: 'Roles', href: '/roles', icon: ShieldCheck, permission: 'roles:gestionar' },
       { title: 'Sucursales', href: '/sucursales', icon: Building2, permission: 'sucursales:gestionar' },
       { title: 'Configuración', href: '/configuracion', icon: Settings, permission: 'configuracion:gestionar' },
+      { title: 'Pagos', href: '/configuracion/pagos', icon: CreditCard, permission: 'configuracion:gestionar' },
     ],
   },
 ]
