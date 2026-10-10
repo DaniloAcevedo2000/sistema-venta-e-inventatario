@@ -27,6 +27,7 @@ type CrearVentaPayload = {
   redTarjetaId?: string
   referencia?: string
   tasaCambio: number
+  sesionCajaId?: string
 }
 
 type ResultadoVenta = {
@@ -67,6 +68,49 @@ export async function crearVentaAction(
     }
 
     const sucursalId = user.sucursalId
+
+    // ============================================
+    // 0. VALIDAR SESIÓN DE CAJA
+    // ============================================
+    let sesionCajaId = payload.sesionCajaId
+
+    if (!sesionCajaId) {
+      // Buscar si el usuario tiene una sesión abierta
+      const sesionAbierta = await prisma.sesionCaja.findFirst({
+        where: {
+          usuarioAperturaId: user.id,
+          estado: 'ABIERTA',
+        },
+      })
+
+      if (!sesionAbierta) {
+        return {
+          success: false,
+          error:
+            'No tienes una caja abierta. Debes abrir una caja antes de vender.',
+        }
+      }
+      sesionCajaId = sesionAbierta.id
+    } else {
+      // Verificar que la sesión existe y está abierta
+      const sesion = await prisma.sesionCaja.findUnique({
+        where: { id: sesionCajaId },
+      })
+
+      if (!sesion || sesion.estado !== 'ABIERTA') {
+        return {
+          success: false,
+          error: 'La sesión de caja no está abierta.',
+        }
+      }
+
+      if (sesion.usuarioAperturaId !== user.id) {
+        return {
+          success: false,
+          error: 'La sesión de caja no te pertenece.',
+        }
+      }
+    }
 
     // ============================================
     // 1. VALIDAR MÉTODO DE PAGO
@@ -147,10 +191,10 @@ export async function crearVentaAction(
     const numeroFacturaCompleto = `${serie}-${String(numeroFacturaSucursal).padStart(6, '0')}`
 
     // ============================================
-    // 4. CREAR VENTA + ITEMS + PAGO + FACTURA (TRANSACCIÓN)
+    // 4. CREAR VENTA + ITEMS + PAGO + FACTURA
     // ============================================
     const resultado = await prisma.$transaction(async (tx) => {
-      // 4.1 Crear venta
+      // 4.1 Crear venta (asociada a la sesión de caja)
       const venta = await tx.venta.create({
         data: {
           numero: numeroVentaCompleto,
@@ -173,6 +217,10 @@ export async function crearVentaAction(
           },
           usuario: {
             connect: { id: user.id },
+          },
+          // ← ASOCIAR A LA SESIÓN DE CAJA
+          sesionCaja: {
+            connect: { id: sesionCajaId },
           },
         },
       })
@@ -311,6 +359,7 @@ export async function crearVentaAction(
             factura: numeroFacturaCompleto,
             total,
             metodoPago: metodoPago.codigo,
+            sesionCajaId,
           } as any,
         },
       })
@@ -320,6 +369,7 @@ export async function crearVentaAction(
 
     revalidatePath('/pos')
     revalidatePath('/inventario')
+    revalidatePath('/caja')
 
     return {
       success: true,

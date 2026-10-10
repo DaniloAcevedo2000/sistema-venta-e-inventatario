@@ -9,6 +9,7 @@ import {
   Receipt,
   Percent,
   StickyNote,
+  Wallet,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ import type {
   MetodoPagoConfig,
   BancoConfig,
   RedTarjetaConfig,
+  SesionCajaInfo,
 } from './pos-interface'
 
 type Usuario = {
@@ -52,6 +54,7 @@ type Props = {
   metodosPago: MetodoPagoConfig[]
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
+  sesionCajaAbierta: SesionCajaInfo
 }
 
 export function OrdenPanel({
@@ -60,6 +63,7 @@ export function OrdenPanel({
   metodosPago,
   bancos,
   redesTarjeta,
+  sesionCajaAbierta,
 }: Props) {
   const items = usePosStore((s) => s.items)
   const eliminarItem = usePosStore((s) => s.eliminarItem)
@@ -79,20 +83,23 @@ export function OrdenPanel({
   const puedeCobrar = items.length > 0
   const puedeDescontar = usuario.permisos.includes('ventas:descuento')
 
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="p-4 border-b bg-muted/30">
         <div className="flex items-center justify-between">
-          <div>
+          <div className="flex-1 min-w-0">
             <h2 className="font-semibold text-lg flex items-center gap-2">
               <Receipt className="h-5 w-5" />
               Orden Actual
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground truncate">
               {usuario.sucursalNombre} · {usuario.nombre}
             </p>
+            <Badge variant="secondary" className="mt-1.5 text-xs gap-1">
+              <Wallet className="h-3 w-3" />
+              {sesionCajaAbierta.cajaNombre}
+            </Badge>
           </div>
           {items.length > 0 && (
             <Badge variant="secondary">
@@ -195,7 +202,7 @@ export function OrdenPanel({
       )}
 
       {/* Dialog de cobro */}
-            <CobrarDialog
+      <CobrarDialog
         open={cobrarOpen}
         onOpenChange={setCobrarOpen}
         usuario={usuario}
@@ -203,6 +210,7 @@ export function OrdenPanel({
         metodosPago={metodosPago}
         bancos={bancos}
         redesTarjeta={redesTarjeta}
+        sesionCajaId={sesionCajaAbierta.id}
         onVentaCreada={(venta) => {
           setVentaExitosa(venta)
           setCobrarOpen(false)

@@ -25,6 +25,7 @@ export default async function PosPage() {
     metodosPago,
     bancos,
     redesTarjeta,
+    sesionCajaAbierta,  // ← NUEVA QUERY
   ] = await Promise.all([
     prisma.categoria.findMany({
       where: { activo: true },
@@ -45,6 +46,16 @@ export default async function PosPage() {
     obtenerMetodosPago(),
     obtenerBancos(),
     obtenerRedesTarjeta(),
+    // Buscar la sesión de caja abierta del usuario actual
+    prisma.sesionCaja.findFirst({
+      where: {
+        usuarioAperturaId: session.user.id,
+        estado: 'ABIERTA',
+      },
+      include: {
+        caja: { select: { id: true, codigo: true, nombre: true } },
+      },
+    }),
   ])
 
   const productosSerializados = productos.map((p) => ({
@@ -77,7 +88,6 @@ export default async function PosPage() {
     permisos: session.user.permisos,
   }
 
-  // Serializar métodos de pago
   const metodosPagoSerializados = metodosPago.map((m) => ({
     id: m.id,
     codigo: m.codigo,
@@ -121,6 +131,17 @@ export default async function PosPage() {
         metodosPago={metodosPagoSerializados}
         bancos={bancosSerializados}
         redesTarjeta={redesSerializadas}
+        sesionCajaAbierta={
+          sesionCajaAbierta
+            ? {
+                id: sesionCajaAbierta.id,
+                cajaNombre: sesionCajaAbierta.caja.nombre,
+                cajaCodigo: sesionCajaAbierta.caja.codigo,
+                fechaApertura: sesionCajaAbierta.fechaApertura.toISOString(),
+                montoInicial: Number(sesionCajaAbierta.montoInicial),
+              }
+            : null
+        }
       />
     </div>
   )

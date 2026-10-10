@@ -2,11 +2,19 @@
 
 import * as React from 'react'
 import * as Icons from 'lucide-react'
-import { Search, X } from 'lucide-react'
+import { Search, X, Wallet, AlertTriangle } from 'lucide-react'
+import Link from 'next/link'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { usePosStore } from '@/lib/stores/pos-store'
 import { OrdenPanel } from './orden-panel'
@@ -79,6 +87,14 @@ export type RedTarjetaConfig = {
   nombre: string
 }
 
+export type SesionCajaInfo = {
+  id: string
+  cajaNombre: string
+  cajaCodigo: string
+  fechaApertura: string
+  montoInicial: number
+}
+
 type Props = {
   categorias: Categoria[]
   productos: Producto[]
@@ -87,6 +103,7 @@ type Props = {
   metodosPago: MetodoPagoConfig[]
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
+  sesionCajaAbierta: SesionCajaInfo | null
 }
 
 export function PosInterface({
@@ -97,12 +114,46 @@ export function PosInterface({
   metodosPago,
   bancos,
   redesTarjeta,
+  sesionCajaAbierta,
 }: Props) {
   const [categoriaActiva, setCategoriaActiva] = React.useState<string | null>(null)
   const [busqueda, setBusqueda] = React.useState('')
   const [varianteProducto, setVarianteProducto] = React.useState<Producto | null>(null)
 
   const agregarItem = usePosStore((s) => s.agregarItem)
+
+  // ============================================
+  // BLOQUEAR SI NO HAY CAJA ABIERTA
+  // ============================================
+  if (!sesionCajaAbierta) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-muted/30 p-6">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-950/30 flex items-center justify-center mb-3">
+              <Wallet className="h-8 w-8 text-amber-600" />
+            </div>
+            <CardTitle>No tienes una caja abierta</CardTitle>
+            <CardDescription>
+              Para empezar a vender, primero debes abrir una caja en el módulo
+              de Caja.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button asChild className="w-full" size="lg">
+              <Link href="/caja">
+                <Wallet className="mr-2 h-4 w-4" />
+                Ir a Caja
+              </Link>
+            </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              Sin una caja abierta no es posible registrar ventas.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   // ============================================
   // Filtrado
@@ -159,7 +210,7 @@ export function PosInterface({
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* ============================================
-          Columna izquierda: Categorías + Productos
+          Columna izquierda
           ============================================ */}
       <div className="flex-1 flex flex-col overflow-hidden border-r">
         {/* Barra de búsqueda */}
@@ -218,7 +269,6 @@ export function PosInterface({
               })}
             </div>
 
-            {/* Subcategorías */}
             {subcategorias.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1 mt-2">
                 {subcategorias.map((sub) => (
@@ -268,7 +318,7 @@ export function PosInterface({
       </div>
 
       {/* ============================================
-          Columna derecha: Orden
+          Columna derecha
           ============================================ */}
       <div className="w-[380px] flex flex-col bg-background">
         <OrdenPanel
@@ -277,10 +327,10 @@ export function PosInterface({
           metodosPago={metodosPago}
           bancos={bancos}
           redesTarjeta={redesTarjeta}
+          sesionCajaAbierta={sesionCajaAbierta}
         />
       </div>
 
-      {/* Selector de variantes (Dialog) */}
       <VarianteSelector
         producto={varianteProducto}
         open={!!varianteProducto}
@@ -313,7 +363,6 @@ function ProductoCard({
         'focus:outline-none focus:ring-2 focus:ring-primary'
       )}
     >
-      {/* Imagen / Color */}
       <div
         className="h-20 w-full rounded-lg flex items-center justify-center overflow-hidden"
         style={{
@@ -333,15 +382,12 @@ function ProductoCard({
         )}
       </div>
 
-      {/* Info */}
       <div className="w-full">
         <p className="font-medium text-sm line-clamp-2 leading-tight">
           {producto.nombre}
         </p>
         <div className="flex items-center justify-between mt-1">
-          <span className="font-bold text-primary">
-            C$ {precio.toFixed(2)}
-          </span>
+          <span className="font-bold text-primary">C$ {precio.toFixed(2)}</span>
           {tieneVariantes && (
             <Badge variant="secondary" className="text-xs">
               {producto.variantes.length} var.
@@ -350,7 +396,6 @@ function ProductoCard({
         </div>
       </div>
 
-      {/* Badge destacado */}
       {producto.destacado && (
         <div className="absolute top-1 right-1">
           <Icons.Star className="h-3.5 w-3.5 fill-yellow-500 text-yellow-500" />

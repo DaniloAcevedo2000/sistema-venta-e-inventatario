@@ -48,6 +48,7 @@ type Props = {
   metodosPago: MetodoPagoConfig[]
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
+  sesionCajaId: string  // ← NUEVO
   onVentaCreada?: (resultado: any) => void
 }
 
@@ -59,6 +60,7 @@ export function CobrarDialog({
   metodosPago,
   bancos,
   redesTarjeta,
+  sesionCajaId,  // ← NUEVO
   onVentaCreada,
 }: Props) {
   const total = usePosStore((s) => s.total())
@@ -139,6 +141,7 @@ export function CobrarDialog({
         redTarjetaId: redId || undefined,
         referencia: referencia || undefined,
         tasaCambio,
+        sesionCajaId,  // ← NUEVO
       })
 
       if (!resultado.success) {
@@ -150,7 +153,6 @@ export function CobrarDialog({
       limpiar()
       onOpenChange(false)
 
-      // Callback al padre para mostrar el dialog de éxito
       if (onVentaCreada && resultado.venta) {
         onVentaCreada(resultado.venta)
       }
@@ -286,7 +288,7 @@ export function CobrarDialog({
             </>
           )}
 
-          {/* Banco (tarjeta y transferencia) */}
+          {/* Banco */}
           {metodo.requiereBanco && (
             <>
               <Separator />
