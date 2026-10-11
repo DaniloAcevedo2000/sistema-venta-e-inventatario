@@ -43,6 +43,9 @@ model Usuario {
   movimientosInv      MovimientoInventario[]
   ordenesCompra       OrdenCompra[]
 
+  pedidosCreados    Pedido[] @relation("PedidoCreadoPor")
+  pedidosRepartidos Pedido[] @relation("PedidoRepartidor")
+
   creadoEn      DateTime  @default(now()) @map("creado_en")
   actualizadoEn DateTime  @updatedAt @map("actualizado_en")
   ultimoAcceso  DateTime? @map("ultimo_acceso")
@@ -136,6 +139,9 @@ model Sucursal {
   facturas              Factura[]
   ordenesCompra         OrdenCompra[]
   notasCredito          NotaCredito[]
+
+  pedidos      Pedido[]
+  zonasEntrega ZonaEntrega[]
 
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
@@ -347,6 +353,8 @@ model Producto {
   stocks         Stock[]
   movimientos    MovimientoInventario[]
 
+  itemsPedido ItemPedido[]
+
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
   creadoPorId   String?  @map("creado_por_id")
@@ -382,6 +390,8 @@ model ProductoVariante {
   orden  Int     @default(0)
 
   itemsVenta ItemVenta[]
+
+  itemsPedido ItemPedido[]
 
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
@@ -699,6 +709,8 @@ model Venta {
   factura      Factura?
   notasCredito NotaCredito[]
 
+  pedido Pedido?
+
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
@@ -866,6 +878,13 @@ model Cliente {
 
   ventas       Venta[]
   pagosCredito PagoCredito[]
+
+  pedidos Pedido[]
+
+  // Trazabilidad de desactivación
+  motivoCambio     String?   @map("motivo_cambio")
+  desactivadoEn    DateTime? @map("desactivado_en")
+  desactivadoPorId String?   @map("desactivado_por_id")
 
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
@@ -1103,6 +1122,8 @@ model MetodoPago {
 
   pagos PagoVenta[]
 
+  pedidos Pedido[]
+
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
@@ -1188,4 +1209,159 @@ model TasaCambio {
   @@index([monedaOrigen, monedaDestino, activa])
   @@index([vigenteDesde])
   @@map("tasas_cambio")
+}
+
+// ============================================
+// PEDIDOS Y DELIVERY
+// ============================================
+
+model ZonaEntrega {
+  id          String  @id @default(cuid())
+  codigo      String  @unique
+  nombre      String // "Centro", "Cercano", "Lejano"
+  descripcion String?
+
+  // Tarifa de envío
+  tarifa Decimal @db.Decimal(12, 2)
+
+  // Tiempo estimado de entrega
+  tiempoEstimadoMin Int? @map("tiempo_estimado_min")
+
+  color  String? // para UI
+  orden  Int     @default(0)
+  activa Boolean @default(true)
+
+  // Relaciones
+  pedidos Pedido[]
+
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime  @updatedAt @map("actualizado_en")
+  sucursal      Sucursal? @relation(fields: [sucursalId], references: [id])
+  sucursalId    String?
+
+  @@index([activa, orden])
+  @@map("zonas_entrega")
+}
+
+model Pedido {
+  id             String @id @default(cuid())
+  numero         String @unique // "P-2026-00001"
+  numeroSucursal Int    @map("numero_sucursal")
+
+  // Tipo: DELIVERY o PICKUP
+  tipo String // "DELIVERY", "PICKUP"
+
+  // Estado del pedido
+  estado String @default("PENDIENTE")
+  // "PENDIENTE", "CONFIRMADO", "EN_PREPARACION", "LISTO", "EN_CAMINO", "ENTREGADO", "CANCELADO"
+
+  // Sucursal donde se prepara
+  sucursalId String   @map("sucursal_id")
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+
+  // Cliente (opcional - puede ser cliente ocasional)
+  clienteId String?  @map("cliente_id")
+  cliente   Cliente? @relation(fields: [clienteId], references: [id])
+
+  // Datos del cliente (snapshot al momento del pedido)
+  clienteNombre    String  @map("cliente_nombre")
+  clienteTelefono  String  @map("cliente_telefono")
+  clienteDireccion String? @map("cliente_direccion") // solo para delivery
+
+  latitud         Float?
+  longitud        Float?
+
+  // Zona de entrega (solo delivery)
+  zonaEntregaId String?      @map("zona_entrega_id")
+  zonaEntrega   ZonaEntrega? @relation(fields: [zonaEntregaId], references: [id])
+
+  // Usuario que creó el pedido (cajero/admin)
+  usuarioCreacionId String  @map("usuario_creacion_id")
+  usuarioCreacion   Usuario @relation("PedidoCreadoPor", fields: [usuarioCreacionId], references: [id])
+
+  // Repartidor asignado (solo delivery)
+  repartidorId String?  @map("repartidor_id")
+  repartidor   Usuario? @relation("PedidoRepartidor", fields: [repartidorId], references: [id])
+
+  // Hora programada (opcional)
+  fechaProgramada DateTime? @map("fecha_programada")
+
+  // Totales
+  subtotal   Decimal @default(0) @db.Decimal(12, 2)
+  descuento  Decimal @default(0) @db.Decimal(12, 2)
+  impuesto   Decimal @default(0) @db.Decimal(12, 2)
+  costoEnvio Decimal @default(0) @map("costo_envio") @db.Decimal(12, 2)
+  total      Decimal @db.Decimal(12, 2)
+
+  // Pago
+  estadoPago   String      @default("PENDIENTE") @map("estado_pago")
+  // "PENDIENTE", "PAGADO", "CONTRA_ENTREGA", "CANCELADO"
+  metodoPagoId String?     @map("metodo_pago_id")
+  metodoPago   MetodoPago? @relation(fields: [metodoPagoId], references: [id])
+
+  // Ventas y facturas generadas
+  ventaId String? @unique @map("venta_id")
+  venta   Venta?  @relation(fields: [ventaId], references: [id])
+
+  // Notas
+  notas         String?
+  notasInternas String? @map("notas_internas") // para cocina/barista
+
+  // Timestamps del flujo
+  confirmadoEn      DateTime? @map("confirmado_en")
+  preparacionEn     DateTime? @map("preparacion_en")
+  listoEn           DateTime? @map("listo_en")
+  enCaminoEn        DateTime? @map("en_camino_en")
+  entregadoEn       DateTime? @map("entregado_en")
+  canceladoEn       DateTime? @map("cancelado_en")
+  motivoCancelacion String?   @map("motivo_cancelacion")
+
+  // Auditoría
+  items ItemPedido[]
+
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@unique([sucursalId, numeroSucursal])
+  @@index([estado, creadoEn])
+  @@index([tipo, estado])
+  @@index([sucursalId, estado])
+  @@index([repartidorId, estado])
+  @@index([clienteId])
+  @@index([creadoEn])
+  @@map("pedidos")
+}
+
+model ItemPedido {
+  id       String @id @default(cuid())
+  pedidoId String @map("pedido_id")
+  pedido   Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  productoId String   @map("producto_id")
+  producto   Producto @relation(fields: [productoId], references: [id])
+
+  varianteId String?           @map("variante_id")
+  variante   ProductoVariante? @relation(fields: [varianteId], references: [id])
+
+  // Snapshot
+  nombreProducto String  @map("nombre_producto")
+  nombreVariante String? @map("nombre_variante")
+
+  cantidad       Decimal @db.Decimal(12, 4)
+  precioUnitario Decimal @map("precio_unitario") @db.Decimal(12, 4)
+  descuento      Decimal @default(0) @db.Decimal(12, 2)
+
+  subtotal Decimal @db.Decimal(12, 2)
+  impuesto Decimal @default(0) @db.Decimal(12, 2)
+  total    Decimal @db.Decimal(12, 2)
+
+  tipoImpuesto String @default("GRAVADO_15") @map("tipo_impuesto")
+
+  notas String?
+
+  creadoEn DateTime @default(now()) @map("creado_en")
+
+  @@index([pedidoId])
+  @@index([productoId])
+  @@map("items_pedido")
 }

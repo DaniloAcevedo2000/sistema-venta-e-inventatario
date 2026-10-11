@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import * as Icons from 'lucide-react'
-import { Search, X, Wallet, AlertTriangle } from 'lucide-react'
+import { Search, X, Wallet } from 'lucide-react'
 import Link from 'next/link'
 
 import { Button } from '@/components/ui/button'
@@ -95,6 +95,20 @@ export type SesionCajaInfo = {
   montoInicial: number
 }
 
+export type ClienteConfig = {
+  id: string
+  codigo: string
+  nombre: string
+  apellido: string | null
+  nombreComercial: string | null
+  tipoDocumento: string | null
+  numeroDocumento: string | null
+  telefono: string | null
+  limiteCredito: number
+  saldoActual: number
+  creditoDisponible: number
+}
+
 type Props = {
   categorias: Categoria[]
   productos: Producto[]
@@ -103,6 +117,7 @@ type Props = {
   metodosPago: MetodoPagoConfig[]
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
+  clientes: ClienteConfig[]
   sesionCajaAbierta: SesionCajaInfo | null
 }
 
@@ -114,6 +129,7 @@ export function PosInterface({
   metodosPago,
   bancos,
   redesTarjeta,
+  clientes,
   sesionCajaAbierta,
 }: Props) {
   const [categoriaActiva, setCategoriaActiva] = React.useState<string | null>(null)
@@ -209,9 +225,7 @@ export function PosInterface({
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* ============================================
-          Columna izquierda
-          ============================================ */}
+      {/* Columna izquierda */}
       <div className="flex-1 flex flex-col overflow-hidden border-r">
         {/* Barra de búsqueda */}
         <div className="p-4 border-b bg-background">
@@ -317,9 +331,7 @@ export function PosInterface({
         </div>
       </div>
 
-      {/* ============================================
-          Columna derecha
-          ============================================ */}
+      {/* Columna derecha */}
       <div className="w-[380px] flex flex-col bg-background">
         <OrdenPanel
           usuario={usuario}
@@ -327,6 +339,7 @@ export function PosInterface({
           metodosPago={metodosPago}
           bancos={bancos}
           redesTarjeta={redesTarjeta}
+          clientes={clientes}
           sesionCajaAbierta={sesionCajaAbierta}
         />
       </div>

@@ -25,7 +25,8 @@ export default async function PosPage() {
     metodosPago,
     bancos,
     redesTarjeta,
-    sesionCajaAbierta,  // ← NUEVA QUERY
+    sesionCajaAbierta,
+    clientes,  // ← NUEVO
   ] = await Promise.all([
     prisma.categoria.findMany({
       where: { activo: true },
@@ -46,7 +47,6 @@ export default async function PosPage() {
     obtenerMetodosPago(),
     obtenerBancos(),
     obtenerRedesTarjeta(),
-    // Buscar la sesión de caja abierta del usuario actual
     prisma.sesionCaja.findFirst({
       where: {
         usuarioAperturaId: session.user.id,
@@ -55,6 +55,27 @@ export default async function PosPage() {
       include: {
         caja: { select: { id: true, codigo: true, nombre: true } },
       },
+    }),
+    // ← NUEVO: Clientes con crédito habilitado
+    prisma.cliente.findMany({
+      where: {
+        activo: true,
+        permiteCredito: true,
+      },
+      select: {
+        id: true,
+        codigo: true,
+        nombre: true,
+        apellido: true,
+        nombreComercial: true,
+        tipoDocumento: true,
+        numeroDocumento: true,
+        telefono: true,
+        limiteCredito: true,
+        saldoActual: true,
+      },
+      orderBy: { nombre: 'asc' },
+      take: 500,
     }),
   ])
 
@@ -115,6 +136,20 @@ export default async function PosPage() {
     nombre: r.nombre,
   }))
 
+  const clientesSerializados = clientes.map((c) => ({
+    id: c.id,
+    codigo: c.codigo,
+    nombre: c.nombre,
+    apellido: c.apellido,
+    nombreComercial: c.nombreComercial,
+    tipoDocumento: c.tipoDocumento,
+    numeroDocumento: c.numeroDocumento,
+    telefono: c.telefono,
+    limiteCredito: Number(c.limiteCredito),
+    saldoActual: Number(c.saldoActual),
+    creditoDisponible: Number(c.limiteCredito) - Number(c.saldoActual),
+  }))
+
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col">
       <PosInterface
@@ -131,6 +166,7 @@ export default async function PosPage() {
         metodosPago={metodosPagoSerializados}
         bancos={bancosSerializados}
         redesTarjeta={redesSerializadas}
+        clientes={clientesSerializados}
         sesionCajaAbierta={
           sesionCajaAbierta
             ? {

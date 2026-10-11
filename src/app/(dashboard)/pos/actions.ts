@@ -28,6 +28,7 @@ type CrearVentaPayload = {
   referencia?: string
   tasaCambio: number
   sesionCajaId?: string
+  clienteId?: string
 }
 
 type ResultadoVenta = {
@@ -50,9 +51,6 @@ async function verificarPermiso(permiso: string) {
   return session.user
 }
 
-// ============================================
-// CREAR VENTA
-// ============================================
 export async function crearVentaAction(
   payload: CrearVentaPayload
 ): Promise<ResultadoVenta> {
@@ -70,12 +68,11 @@ export async function crearVentaAction(
     const sucursalId = user.sucursalId
 
     // ============================================
-    // 0. VALIDAR SESIÓN DE CAJA
+    // VALIDAR SESIÓN DE CAJA
     // ============================================
     let sesionCajaId = payload.sesionCajaId
 
     if (!sesionCajaId) {
-      // Buscar si el usuario tiene una sesión abierta
       const sesionAbierta = await prisma.sesionCaja.findFirst({
         where: {
           usuarioAperturaId: user.id,
@@ -86,34 +83,14 @@ export async function crearVentaAction(
       if (!sesionAbierta) {
         return {
           success: false,
-          error:
-            'No tienes una caja abierta. Debes abrir una caja antes de vender.',
+          error: 'No tienes una caja abierta.',
         }
       }
       sesionCajaId = sesionAbierta.id
-    } else {
-      // Verificar que la sesión existe y está abierta
-      const sesion = await prisma.sesionCaja.findUnique({
-        where: { id: sesionCajaId },
-      })
-
-      if (!sesion || sesion.estado !== 'ABIERTA') {
-        return {
-          success: false,
-          error: 'La sesión de caja no está abierta.',
-        }
-      }
-
-      if (sesion.usuarioAperturaId !== user.id) {
-        return {
-          success: false,
-          error: 'La sesión de caja no te pertenece.',
-        }
-      }
     }
 
     // ============================================
-    // 1. VALIDAR MÉTODO DE PAGO
+    // VALIDAR MÉTODO DE PAGO
     // ============================================
     const metodoPago = await prisma.metodoPago.findUnique({
       where: { id: payload.metodoPagoId },
@@ -133,7 +110,7 @@ export async function crearVentaAction(
     }
 
     // ============================================
-    // 2. CALCULAR TOTALES
+    // CALCULAR TOTALES
     // ============================================
     let subtotal = 0
     let descuentoTotal = 0
@@ -165,7 +142,52 @@ export async function crearVentaAction(
     const total = subtotal - descuentoTotal
 
     // ============================================
-    // 3. GENERAR NÚMEROS CORRELATIVOS
+    // VALIDAR CLIENTE Y CRÉDITO
+    // ============================================
+    let cliente: any = null
+
+    if (metodoPago.esCredito) {
+      if (!payload.clienteId) {
+        return {
+          success: false,
+          error: 'Debes seleccionar un cliente para venta a crédito',
+        }
+      }
+
+      cliente = await prisma.cliente.findUnique({
+        where: { id: payload.clienteId },
+      })
+
+      if (!cliente || !cliente.activo) {
+        return { success: false, error: 'Cliente no válido o inactivo' }
+      }
+
+      if (!cliente.permiteCredito) {
+        return {
+          success: false,
+          error: 'El cliente no tiene crédito habilitado',
+        }
+      }
+
+      const saldoActual = Number(cliente.saldoActual)
+      const limite = Number(cliente.limiteCredito)
+      const disponible = limite - saldoActual
+
+      if (disponible < total) {
+        return {
+          success: false,
+          error: `El cliente solo tiene C$ ${disponible.toFixed(2)} disponibles. Esta venta es de C$ ${total.toFixed(2)}.`,
+        }
+      }
+    } else if (payload.clienteId) {
+      // Si no es crédito pero hay cliente seleccionado, cargarlo
+      cliente = await prisma.cliente.findUnique({
+        where: { id: payload.clienteId },
+      })
+    }
+
+    // ============================================
+    // GENERAR NÚMEROS CORRELATIVOS
     // ============================================
     const año = new Date().getFullYear()
 
@@ -191,10 +213,10 @@ export async function crearVentaAction(
     const numeroFacturaCompleto = `${serie}-${String(numeroFacturaSucursal).padStart(6, '0')}`
 
     // ============================================
-    // 4. CREAR VENTA + ITEMS + PAGO + FACTURA
+    // CREAR VENTA + ITEMS + PAGO + FACTURA
     // ============================================
     const resultado = await prisma.$transaction(async (tx) => {
-      // 4.1 Crear venta (asociada a la sesión de caja)
+      // 1. Crear venta
       const venta = await tx.venta.create({
         data: {
           numero: numeroVentaCompleto,
@@ -212,20 +234,14 @@ export async function crearVentaAction(
           totalTarjeta: metodoPago.codigo === 'TARJETA' ? total : 0,
           totalTransferencia: metodoPago.codigo === 'TRANSFERENCIA' ? total : 0,
           totalCredito: metodoPago.esCredito ? total : 0,
-          sucursal: {
-            connect: { id: sucursalId },
-          },
-          usuario: {
-            connect: { id: user.id },
-          },
-          // ← ASOCIAR A LA SESIÓN DE CAJA
-          sesionCaja: {
-            connect: { id: sesionCajaId },
-          },
+          sucursal: { connect: { id: sucursalId } },
+          usuario: { connect: { id: user.id } },
+          sesionCaja: { connect: { id: sesionCajaId } },
+          ...(cliente && { cliente: { connect: { id: cliente.id } } }),
         },
       })
 
-      // 4.2 Crear items + descontar inventario
+      // 2. Crear items + descontar inventario
       for (const item of itemsCalculados) {
         await tx.itemVenta.create({
           data: {
@@ -247,7 +263,6 @@ export async function crearVentaAction(
           },
         })
 
-        // Descontar inventario según receta
         const receta = await tx.receta.findUnique({
           where: { productoId: item.productoId },
           include: { items: true },
@@ -303,7 +318,7 @@ export async function crearVentaAction(
         }
       }
 
-      // 4.3 Crear pago
+      // 3. Crear pago
       await tx.pagoVenta.create({
         data: {
           venta: { connect: { id: venta.id } },
@@ -326,7 +341,38 @@ export async function crearVentaAction(
         },
       })
 
-      // 4.4 Crear factura
+      // 4. ACTUALIZAR SALDO DEL CLIENTE SI ES CRÉDITO
+      if (metodoPago.esCredito && cliente) {
+        const saldoActual = Number(cliente.saldoActual)
+        const nuevoSaldo = saldoActual + total
+
+        await tx.cliente.update({
+          where: { id: cliente.id },
+          data: { saldoActual: nuevoSaldo },
+        })
+
+        await tx.auditoria.create({
+          data: {
+            usuario: { connect: { id: user.id } },
+            accion: 'cliente.credito_agregado',
+            entidadTipo: 'Cliente',
+            entidadId: cliente.id,
+            datosAntes: { saldoActual } as any,
+            datosDespues: {
+              saldoNuevo: nuevoSaldo,
+              ventaNumero: numeroVentaCompleto,
+              monto: total,
+            } as any,
+          },
+        })
+      }
+
+      // 5. Crear factura
+      const nombreCliente = cliente
+        ? cliente.nombreComercial ||
+          `${cliente.nombre} ${cliente.apellido ?? ''}`.trim()
+        : 'Consumidor Final'
+
       const factura = await tx.factura.create({
         data: {
           serie,
@@ -335,7 +381,9 @@ export async function crearVentaAction(
           numeroCompleto: numeroFacturaCompleto,
           venta: { connect: { id: venta.id } },
           sucursal: { connect: { id: sucursalId } },
-          clienteNombre: 'Consumidor Final',
+          clienteNombre: nombreCliente,
+          clienteRuc: cliente?.numeroDocumento || null,
+          clienteDireccion: cliente?.direccion || null,
           tipoDocumento: 'FACTURA',
           subtotal,
           subtotalGravado: subtotal - descuentoTotal,
@@ -347,7 +395,7 @@ export async function crearVentaAction(
         },
       })
 
-      // 4.5 Auditoría
+      // 6. Auditoría
       await tx.auditoria.create({
         data: {
           usuario: { connect: { id: user.id } },
@@ -359,7 +407,8 @@ export async function crearVentaAction(
             factura: numeroFacturaCompleto,
             total,
             metodoPago: metodoPago.codigo,
-            sesionCajaId,
+            clienteId: cliente?.id ?? null,
+            esCredito: metodoPago.esCredito,
           } as any,
         },
       })
@@ -370,6 +419,7 @@ export async function crearVentaAction(
     revalidatePath('/pos')
     revalidatePath('/inventario')
     revalidatePath('/caja')
+    revalidatePath('/clientes')
 
     return {
       success: true,

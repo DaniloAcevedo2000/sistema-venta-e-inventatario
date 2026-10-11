@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import * as Icons from 'lucide-react'
-import { ArrowRight, AlertCircle } from 'lucide-react'
+import { ArrowRight, AlertCircle, User, Check } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -24,12 +25,27 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
 import { usePosStore } from '@/lib/stores/pos-store'
 import { crearVentaAction } from './actions'
 import type {
   MetodoPagoConfig,
   BancoConfig,
   RedTarjetaConfig,
+  ClienteConfig,
 } from './pos-interface'
 
 type Usuario = {
@@ -48,8 +64,13 @@ type Props = {
   metodosPago: MetodoPagoConfig[]
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
-  sesionCajaId: string  // ← NUEVO
+  clientes: ClienteConfig[]
+  sesionCajaId: string
   onVentaCreada?: (resultado: any) => void
+}
+
+function formatearMoneda(valor: number) {
+  return `C$ ${valor.toFixed(2)}`
 }
 
 export function CobrarDialog({
@@ -60,7 +81,8 @@ export function CobrarDialog({
   metodosPago,
   bancos,
   redesTarjeta,
-  sesionCajaId,  // ← NUEVO
+  clientes,
+  sesionCajaId,
   onVentaCreada,
 }: Props) {
   const total = usePosStore((s) => s.total())
@@ -72,30 +94,36 @@ export function CobrarDialog({
   const [bancoId, setBancoId] = React.useState('')
   const [redId, setRedId] = React.useState('')
   const [referencia, setReferencia] = React.useState('')
+  const [clienteId, setClienteId] = React.useState<string>('')
+  const [clienteOpen, setClienteOpen] = React.useState(false)
   const [procesando, setProcesando] = React.useState(false)
 
   const metodo = metodosPago.find((m) => m.id === metodoId) || metodosPago[0]
+  const cliente = clientes.find((c) => c.id === clienteId)
 
+  // Auto-seleccionar primer método
   React.useEffect(() => {
     if (open && metodosPago.length > 0 && !metodoId) {
       setMetodoId(metodosPago[0].id)
     }
   }, [open, metodosPago, metodoId])
 
+  // Limpiar al abrir
   React.useEffect(() => {
     if (open) {
       setMontoRecibido('')
       setBancoId('')
       setRedId('')
       setReferencia('')
+      setClienteId('')
     }
   }, [open])
 
-  if (!metodo) {
-    return null
-  }
+  if (!metodo) return null
 
-  // Cálculos
+  // ============================================
+  // CÁLCULOS
+  // ============================================
   const montoNum = parseFloat(montoRecibido) || 0
   const esEfectivoUsd = metodo.codigo === 'EFECTIVO_USD'
   const esEfectivo = metodo.tipo === 'efectivo'
@@ -109,11 +137,33 @@ export function CobrarDialog({
   const bancoValido = !metodo.requiereBanco || bancoId !== ''
   const redValida = !metodo.requiereRed || redId !== ''
 
+  // ============================================
+  // VALIDACIÓN DE CRÉDITO
+  // ============================================
+  const creditoSuficiente = React.useMemo(() => {
+    if (!metodo.esCredito) return true
+    if (!cliente) return false
+    return cliente.creditoDisponible >= total
+  }, [metodo.esCredito, cliente, total])
+
+  const creditoCliente = cliente
+    ? {
+        disponible: cliente.creditoDisponible,
+        saldoActual: cliente.saldoActual,
+        limite: cliente.limiteCredito,
+        nuevoSaldo: cliente.saldoActual + total,
+      }
+    : null
+
   const puedeConfirmar =
-    items.length > 0 && montoSuficiente && bancoValido && redValida
+    items.length > 0 &&
+    montoSuficiente &&
+    bancoValido &&
+    redValida &&
+    (!metodo.esCredito || (cliente && creditoSuficiente))
 
   // ============================================
-  // CREAR VENTA
+  // HANDLER COBRAR
   // ============================================
   const handleCobrar = async () => {
     if (!puedeConfirmar) return
@@ -141,7 +191,8 @@ export function CobrarDialog({
         redTarjetaId: redId || undefined,
         referencia: referencia || undefined,
         tasaCambio,
-        sesionCajaId,  // ← NUEVO
+        sesionCajaId,
+        clienteId: clienteId || undefined,
       })
 
       if (!resultado.success) {
@@ -164,6 +215,11 @@ export function CobrarDialog({
     }
   }
 
+  const nombreCliente = cliente
+    ? cliente.nombreComercial ||
+      `${cliente.nombre} ${cliente.apellido ?? ''}`.trim()
+    : ''
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[95vh] overflow-y-auto">
@@ -176,6 +232,176 @@ export function CobrarDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* ============================================
+              SELECTOR DE CLIENTE (solo si es crédito)
+              ============================================ */}
+          {metodo.esCredito && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Cliente <span className="text-destructive">*</span>
+              </Label>
+
+              <Popover open={clienteOpen} onOpenChange={setClienteOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className={cn(
+                      'w-full justify-between font-normal h-auto py-3',
+                      !cliente && 'text-muted-foreground'
+                    )}
+                    disabled={procesando}
+                  >
+                    {cliente ? (
+                      <div className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
+                        <span className="truncate font-medium">
+                          {nombreCliente}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Disponible: {formatearMoneda(cliente.creditoDisponible)}
+                        </span>
+                      </div>
+                    ) : (
+                      'Buscar cliente con crédito...'
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar por nombre, código, RUC..." />
+                    <CommandList>
+                      <CommandEmpty>
+                        No hay clientes con crédito habilitado
+                      </CommandEmpty>
+                      <CommandGroup heading="Clientes con crédito">
+                        {clientes.map((c) => {
+                          const nombre =
+                            c.nombreComercial ||
+                            `${c.nombre} ${c.apellido ?? ''}`.trim()
+                          const disponible = c.creditoDisponible
+                          const suficiente = disponible >= total
+
+                          return (
+                            <CommandItem
+                              key={c.id}
+                              value={`${c.codigo} ${nombre} ${c.numeroDocumento ?? ''}`}
+                              onSelect={() => {
+                                setClienteId(c.id)
+                                setClienteOpen(false)
+                              }}
+                              className="flex flex-col items-start py-2"
+                            >
+                              <div className="flex items-center gap-2 w-full">
+                                <Check
+                                  className={cn(
+                                    'h-4 w-4 shrink-0',
+                                    clienteId === c.id
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
+                                <span className="font-medium truncate flex-1">
+                                  {nombre}
+                                </span>
+                                <Badge
+                                  variant={
+                                    suficiente ? 'secondary' : 'destructive'
+                                  }
+                                  className="text-xs shrink-0"
+                                >
+                                  {formatearMoneda(disponible)}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 pl-6 mt-0.5">
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {c.codigo}
+                                </span>
+                                {c.numeroDocumento && (
+                                  <>
+                                    <span className="text-xs text-muted-foreground">
+                                      ·
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {c.tipoDocumento}: {c.numeroDocumento}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+
+              {/* Detalle del crédito del cliente */}
+              {cliente && creditoCliente && (
+                <div
+                  className={cn(
+                    'rounded-lg border p-3 space-y-2 text-sm',
+                    creditoSuficiente
+                      ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900'
+                      : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900'
+                  )}
+                >
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Límite</span>
+                    <span className="font-medium">
+                      {formatearMoneda(creditoCliente.limite)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Saldo actual</span>
+                    <span className="font-medium">
+                      {formatearMoneda(creditoCliente.saldoActual)}
+                    </span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Disponible</span>
+                    <span className="font-bold">
+                      {formatearMoneda(creditoCliente.disponible)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Esta venta</span>
+                    <span className="font-medium">{formatearMoneda(total)}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between font-bold">
+                    <span>Nuevo saldo</span>
+                    <span
+                      className={
+                        creditoSuficiente
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                      }
+                    >
+                      {formatearMoneda(creditoCliente.nuevoSaldo)}
+                    </span>
+                  </div>
+                  {!creditoSuficiente && (
+                    <p className="text-xs text-red-600 pt-1">
+                      ⚠️ El crédito disponible no es suficiente para esta venta
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!cliente && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Selecciona un cliente con crédito habilitado para continuar
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+
           {/* Total */}
           <div className="rounded-lg bg-primary/10 p-4 text-center space-y-1">
             <p className="text-xs text-muted-foreground">Total a cobrar</p>
@@ -202,7 +428,10 @@ export function CobrarDialog({
                     type="button"
                     variant={isActive ? 'default' : 'outline'}
                     className="h-auto py-3 flex-col items-center gap-1"
-                    onClick={() => setMetodoId(m.id)}
+                    onClick={() => {
+                      setMetodoId(m.id)
+                      if (!m.esCredito) setClienteId('')
+                    }}
                     disabled={procesando}
                   >
                     <Icon className="h-4 w-4" />
@@ -344,20 +573,6 @@ export function CobrarDialog({
                   </div>
                 )}
               </div>
-            </>
-          )}
-
-          {/* Crédito */}
-          {metodo.esCredito && (
-            <>
-              <Separator />
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  En la próxima fase se agregará la selección de cliente con
-                  crédito habilitado y verificación de límite.
-                </AlertDescription>
-              </Alert>
             </>
           )}
 

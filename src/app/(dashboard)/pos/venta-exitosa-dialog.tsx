@@ -42,9 +42,6 @@ type Props = {
   venta: VentaCreada | null
 }
 
-// ============================================
-// HELPER (fuera del componente)
-// ============================================
 function base64ToBlobUrl(base64: string) {
   const byteCharacters = atob(base64)
   const byteNumbers = new Array(byteCharacters.length)
@@ -58,15 +55,11 @@ function base64ToBlobUrl(base64: string) {
 }
 
 export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
-  // ============================================
-  // TODOS LOS HOOKS PRIMERO (sin return temprano)
-  // ============================================
   const [tipoVista, setTipoVista] = React.useState<'boucher' | 'a4'>('boucher')
   const [pdfBoucher, setPdfBoucher] = React.useState<string | null>(null)
   const [pdfA4, setPdfA4] = React.useState<string | null>(null)
   const [cargando, setCargando] = React.useState(false)
 
-  // Generar PDFs al abrir
   React.useEffect(() => {
     if (!open || !venta?.facturaId) return
 
@@ -98,7 +91,6 @@ export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
     }
   }, [open, venta?.facturaId])
 
-  // Limpiar al cerrar
   React.useEffect(() => {
     if (!open) {
       setPdfBoucher(null)
@@ -107,7 +99,6 @@ export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
     }
   }, [open])
 
-  // Memoizar URLs (SIEMPRE se ejecutan)
   const urlBoucher = React.useMemo(
     () => (pdfBoucher ? base64ToBlobUrl(pdfBoucher) : null),
     [pdfBoucher]
@@ -117,9 +108,6 @@ export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
     [pdfA4]
   )
 
-  // ============================================
-  // HANDLERS (funciones que no dependen de hooks)
-  // ============================================
   const descargarPDF = (tipo: 'boucher' | 'a4') => {
     const base64 = tipo === 'boucher' ? pdfBoucher : pdfA4
     if (!base64) return
@@ -165,9 +153,6 @@ export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
     window.open(url, '_blank')
   }
 
-  // ============================================
-  // RETURN TEMPRANO (DESPUÉS de todos los hooks)
-  // ============================================
   if (!venta) return null
 
   return (
@@ -252,7 +237,6 @@ export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
               </div>
             </div>
 
-            {/* Vista previa */}
             <div className="flex-1 overflow-auto p-6 flex justify-center items-start min-h-0">
               {cargando ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground">

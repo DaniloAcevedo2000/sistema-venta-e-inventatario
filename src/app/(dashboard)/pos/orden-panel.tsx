@@ -38,6 +38,7 @@ import type {
   BancoConfig,
   RedTarjetaConfig,
   SesionCajaInfo,
+  ClienteConfig,
 } from './pos-interface'
 
 type Usuario = {
@@ -54,6 +55,7 @@ type Props = {
   metodosPago: MetodoPagoConfig[]
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
+  clientes: ClienteConfig[]
   sesionCajaAbierta: SesionCajaInfo
 }
 
@@ -63,6 +65,7 @@ export function OrdenPanel({
   metodosPago,
   bancos,
   redesTarjeta,
+  clientes,
   sesionCajaAbierta,
 }: Props) {
   const items = usePosStore((s) => s.items)
@@ -210,6 +213,7 @@ export function OrdenPanel({
         metodosPago={metodosPago}
         bancos={bancos}
         redesTarjeta={redesTarjeta}
+        clientes={clientes}
         sesionCajaId={sesionCajaAbierta.id}
         onVentaCreada={(venta) => {
           setVentaExitosa(venta)
@@ -227,7 +231,7 @@ export function OrdenPanel({
 }
 
 // ============================================
-// ItemCard (sin cambios)
+// ItemCard
 // ============================================
 function ItemCard({
   item,

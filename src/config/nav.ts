@@ -16,7 +16,8 @@ import {
   Building2,
   Settings,
   Boxes,
-  Wallet,  
+  Wallet, 
+  MapPin, 
 } from 'lucide-react'
 
 export type NavItem = {
@@ -60,6 +61,7 @@ export const navGroups: NavGroup[] = [
   {
     title: 'Ventas',
     items: [
+      { title: 'Pedidos', href: '/pedidos', icon: Truck, permission: 'pedidos:leer' }, 
       { title: 'Ventas', href: '/ventas', icon: Receipt, permission: 'ventas:leer' },
       { title: 'Facturas', href: '/facturas', icon: Receipt, permission: 'facturas:leer' },
       { title: 'Clientes', href: '/clientes', icon: Users, permission: 'clientes:leer' },
@@ -79,6 +81,7 @@ export const navGroups: NavGroup[] = [
       { title: 'Roles', href: '/roles', icon: ShieldCheck, permission: 'roles:gestionar' },
       { title: 'Sucursales', href: '/sucursales', icon: Building2, permission: 'sucursales:gestionar' },
       { title: 'Configuración', href: '/configuracion', icon: Settings, permission: 'configuracion:gestionar' },
+      { title: 'Zonas de Entrega', href: '/configuracion/zonas-entrega', icon: MapPin, permission: 'zonas_entrega:gestionar' },
       { title: 'Pagos', href: '/configuracion/pagos', icon: CreditCard, permission: 'configuracion:gestionar' },
     ],
   },
