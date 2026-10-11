@@ -4,7 +4,17 @@ import * as React from 'react'
 import { useActionState } from 'react'
 import { useFormStatus } from 'react-dom'
 import { toast } from 'sonner'
-import { Loader2, Truck, Save, Mail, User, Phone, Key, CheckCircle2 } from 'lucide-react'
+import {
+  Loader2,
+  Truck,
+  Save,
+  Mail,
+  User,
+  Phone,
+  Key,
+  CheckCircle2,
+  Building2,
+} from 'lucide-react'
 
 import {
   Dialog,
@@ -20,7 +30,17 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { crearRepartidorAction, actualizarRepartidorAction } from './actions'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  crearRepartidorAction,
+  actualizarRepartidorAction,
+} from './actions'
 
 type Repartidor = {
   id: string
@@ -28,12 +48,19 @@ type Repartidor = {
   correo: string
   telefono: string | null
   activo: boolean
+  sucursalId: string | null
+}
+
+type Sucursal = {
+  id: string
+  nombre: string
 }
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   repartidor: Repartidor | null
+  sucursales: Sucursal[]
 }
 
 function SubmitButton({ modo }: { modo: 'crear' | 'editar' }) {
@@ -55,14 +82,24 @@ function SubmitButton({ modo }: { modo: 'crear' | 'editar' }) {
   )
 }
 
-export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) {
+export function RepartidorFormDialog({
+  open,
+  onOpenChange,
+  repartidor,
+  sucursales,
+}: Props) {
   const modo = repartidor ? 'editar' : 'crear'
+
   const action = repartidor
     ? actualizarRepartidorAction.bind(null, repartidor.id)
     : crearRepartidorAction
 
   const [state, formAction] = useActionState(action, undefined)
+
   const [activo, setActivo] = React.useState(repartidor?.activo ?? true)
+  const [sucursalId, setSucursalId] = React.useState(
+    repartidor?.sucursalId ?? ''
+  )
 
   React.useEffect(() => {
     if (state?.success) {
@@ -92,6 +129,7 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
         </DialogHeader>
 
         <form action={formAction} className="space-y-4">
+          {/* Nombre */}
           <div className="space-y-2">
             <Label htmlFor="nombre" className="flex items-center gap-2">
               <User className="h-3.5 w-3.5" />
@@ -111,6 +149,7 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
             )}
           </div>
 
+          {/* Correo */}
           <div className="space-y-2">
             <Label htmlFor="correo" className="flex items-center gap-2">
               <Mail className="h-3.5 w-3.5" />
@@ -137,6 +176,7 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
             )}
           </div>
 
+          {/* Teléfono */}
           <div className="space-y-2">
             <Label htmlFor="telefono" className="flex items-center gap-2">
               <Phone className="h-3.5 w-3.5" />
@@ -150,6 +190,35 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
             />
           </div>
 
+          {/* Sucursal (solo crear) */}
+          {modo === 'crear' && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Building2 className="h-3.5 w-3.5" />
+                Sucursal (opcional)
+              </Label>
+              <Select value={sucursalId} onValueChange={setSucursalId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona sucursal" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Sin sucursal específica</SelectItem>
+                  {sucursales.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <input
+                type="hidden"
+                name="sucursalId"
+                value={sucursalId === '__none' ? '' : sucursalId}
+              />
+            </div>
+          )}
+
+          {/* Contraseña */}
           <div className="space-y-2">
             <Label htmlFor="contrasena" className="flex items-center gap-2">
               <Key className="h-3.5 w-3.5" />
@@ -160,7 +229,11 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
               id="contrasena"
               name="contrasena"
               type="password"
-              placeholder={modo === 'editar' ? 'Dejar vacío para no cambiar' : 'Mínimo 8 caracteres'}
+              placeholder={
+                modo === 'editar'
+                  ? 'Dejar vacío para no cambiar'
+                  : 'Mínimo 8 caracteres'
+              }
               required={modo === 'crear'}
             />
             {state?.fieldErrors?.contrasena && (
@@ -170,6 +243,7 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
             )}
           </div>
 
+          {/* Estado (solo editar) */}
           {modo === 'editar' && (
             <>
               <Separator />
@@ -190,6 +264,7 @@ export function RepartidorFormDialog({ open, onOpenChange, repartidor }: Props) 
             </>
           )}
 
+          {/* Info crear */}
           {modo === 'crear' && (
             <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
               <CheckCircle2 className="h-4 w-4 text-blue-600" />

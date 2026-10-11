@@ -329,3 +329,373 @@ export async function asignarRepartidorAction(
     return { error: 'Error al asignar repartidor' }
   }
 }
+
+// ============================================
+// COBRAR PEDIDO (Convertir a Venta + Factura)
+// ============================================
+export async function cobrarPedidoAction(
+  pedidoId: string,
+  metodoPagoId: string,
+  opciones?: {
+    bancoId?: string
+    redTarjetaId?: string
+    referencia?: string
+    montoRecibido?: number
+    cambio?: number
+  }
+) {
+  try {
+    const user = await verificarPermiso('pedidos:cobrar')
+
+    if (!user.sucursalId) {
+      return { error: 'Usuario sin sucursal asignada' }
+    }
+
+    // ============================================
+    // 1. VALIDAR PEDIDO
+    // ============================================
+    const pedido = await prisma.pedido.findUnique({
+      where: { id: pedidoId },
+      include: {
+        items: true,
+        cliente: true,
+      },
+    })
+
+    if (!pedido) return { error: 'Pedido no encontrado' }
+
+    if (pedido.facturadoEn) {
+      return { error: 'Este pedido ya fue facturado' }
+    }
+
+    if (!['LISTO', 'ENTREGADO'].includes(pedido.estado)) {
+      return {
+        error: 'El pedido debe estar LISTO o ENTREGADO para cobrarse',
+      }
+    }
+
+    // ============================================
+    // 2. VALIDAR MÉTODO DE PAGO
+    // ============================================
+    const metodoPago = await prisma.metodoPago.findUnique({
+      where: { id: metodoPagoId },
+      include: { moneda: true },
+    })
+
+    if (!metodoPago || !metodoPago.activo) {
+      return { error: 'Método de pago no válido' }
+    }
+
+    if (metodoPago.requiereBanco && !opciones?.bancoId) {
+      return { error: 'Debes seleccionar un banco' }
+    }
+
+    if (metodoPago.requiereRed && !opciones?.redTarjetaId) {
+      return { error: 'Debes seleccionar la red de tarjeta' }
+    }
+
+    // ============================================
+    // 3. VALIDAR SESIÓN DE CAJA
+    // ============================================
+    const sesionCaja = await prisma.sesionCaja.findFirst({
+      where: {
+        usuarioAperturaId: user.id,
+        estado: 'ABIERTA',
+      },
+    })
+
+    if (!sesionCaja) {
+      return {
+        error:
+          'No tienes una caja abierta. Abre una caja antes de cobrar el pedido.',
+      }
+    }
+
+    // ============================================
+    // 4. VALIDAR CLIENTE PARA CRÉDITO
+    // ============================================
+    let cliente: any = pedido.cliente
+    if (metodoPago.esCredito) {
+      if (!cliente) {
+        return {
+          error: 'El pedido no tiene cliente asociado. No se puede cobrar a crédito.',
+        }
+      }
+      if (!cliente.permiteCredito) {
+        return { error: 'El cliente no tiene crédito habilitado' }
+      }
+
+      const saldoActual = Number(cliente.saldoActual)
+      const limite = Number(cliente.limiteCredito)
+      const disponible = limite - saldoActual
+      const total = Number(pedido.total)
+
+      if (disponible < total) {
+        return {
+          error: `Crédito insuficiente. Disponible: C$ ${disponible.toFixed(2)}, Total: C$ ${total.toFixed(2)}`,
+        }
+      }
+    }
+
+    // ============================================
+    // 5. GENERAR NÚMEROS CORRELATIVOS
+    // ============================================
+    const año = new Date().getFullYear()
+
+    const ultimaVenta = await prisma.venta.findFirst({
+      where: { sucursalId: user.sucursalId },
+      orderBy: { numeroSucursal: 'desc' },
+      select: { numeroSucursal: true },
+    })
+    const numeroVentaSucursal = (ultimaVenta?.numeroSucursal ?? 0) + 1
+    const numeroVentaCompleto = `V-${año}-${String(numeroVentaSucursal).padStart(6, '0')}`
+
+    const ultimaFactura = await prisma.factura.findFirst({
+      where: { sucursalId: user.sucursalId },
+      orderBy: { numeroSucursal: 'desc' },
+      select: { numeroSucursal: true },
+    })
+    const numeroFacturaSucursal = (ultimaFactura?.numeroSucursal ?? 0) + 1
+
+    const configSerie = await prisma.configuracion.findUnique({
+      where: { clave: 'factura.serie' },
+    })
+    const serie = configSerie?.valor ?? 'A'
+    const numeroFacturaCompleto = `${serie}-${String(numeroFacturaSucursal).padStart(6, '0')}`
+
+    // ============================================
+    // 6. TRANSACCIÓN
+    // ============================================
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 6.1 Crear Venta
+      const venta = await tx.venta.create({
+        data: {
+          numero: numeroVentaCompleto,
+          numeroSucursal: numeroVentaSucursal,
+          tipo: metodoPago.esCredito ? 'CREDITO' : 'CONTADO',
+          estado: 'COMPLETADA',
+          subtotal: pedido.subtotal,
+          descuento: pedido.descuento,
+          impuesto: pedido.impuesto,
+          total: pedido.total,
+          tasaCambio: 36.6243, // TODO: leer de config
+          totalEfectivoNio: metodoPago.codigo === 'EFECTIVO_NIO' ? pedido.total : 0,
+          totalEfectivoUsd:
+            metodoPago.codigo === 'EFECTIVO_USD'
+              ? opciones?.montoRecibido ?? 0
+              : 0,
+          totalTarjeta: metodoPago.codigo === 'TARJETA' ? pedido.total : 0,
+          totalTransferencia:
+            metodoPago.codigo === 'TRANSFERENCIA' ? pedido.total : 0,
+          totalCredito: metodoPago.esCredito ? pedido.total : 0,
+          sucursal: { connect: { id: user.sucursalId! } },
+          usuario: { connect: { id: user.id } },
+          sesionCaja: { connect: { id: sesionCaja.id } },
+          cliente: cliente ? { connect: { id: cliente.id } } : undefined,
+          notas: `Pedido ${pedido.numero}`,
+        },
+      })
+
+      // 6.2 Crear Items de Venta + descontar inventario
+      for (const item of pedido.items) {
+        await tx.itemVenta.create({
+          data: {
+            venta: { connect: { id: venta.id } },
+            producto: { connect: { id: item.productoId } },
+            variante: item.varianteId
+              ? { connect: { id: item.varianteId } }
+              : undefined,
+            nombreProducto: item.nombreProducto,
+            nombreVariante: item.nombreVariante,
+            cantidad: item.cantidad,
+            precioUnitario: item.precioUnitario,
+            descuento: item.descuento,
+            subtotal: item.subtotal,
+            impuesto: item.impuesto,
+            total: item.total,
+            tipoImpuesto: item.tipoImpuesto,
+            notas: item.notas,
+          },
+        })
+
+        // Descontar inventario según receta
+        const receta = await tx.receta.findUnique({
+          where: { productoId: item.productoId },
+          include: { items: true },
+        })
+
+        if (receta && receta.activa) {
+          for (const recetaItem of receta.items) {
+            const cantidadConsumir =
+              Number(recetaItem.cantidad) *
+              Number(item.cantidad) *
+              (1 + Number(recetaItem.mermaPorcentaje) / 100)
+
+            const stock = await tx.stock.findFirst({
+              where: {
+                insumoId: recetaItem.insumoId,
+                sucursalId: user.sucursalId!,
+              },
+            })
+
+            const cantidadAnterior = stock ? Number(stock.cantidad) : 0
+            const cantidadNueva = Math.max(0, cantidadAnterior - cantidadConsumir)
+
+            if (stock) {
+              await tx.stock.update({
+                where: { id: stock.id },
+                data: { cantidad: cantidadNueva },
+              })
+            } else {
+              await tx.stock.create({
+                data: {
+                  insumo: { connect: { id: recetaItem.insumoId } },
+                  sucursal: { connect: { id: user.sucursalId! } },
+                  cantidad: 0,
+                },
+              })
+            }
+
+            await tx.movimientoInventario.create({
+              data: {
+                insumo: { connect: { id: recetaItem.insumoId } },
+                sucursal: { connect: { id: user.sucursalId! } },
+                usuario: { connect: { id: user.id } },
+                tipo: 'SALIDA_VENTA',
+                cantidad: -cantidadConsumir,
+                cantidadAnterior,
+                cantidadNueva,
+                referenciaTipo: 'venta',
+                referenciaId: venta.id,
+                motivo: `Venta ${numeroVentaCompleto} (Pedido ${pedido.numero})`,
+              },
+            })
+          }
+        }
+      }
+
+      // 6.3 Crear Pago
+      await tx.pagoVenta.create({
+        data: {
+          venta: { connect: { id: venta.id } },
+          metodoPago: { connect: { id: metodoPago.id } },
+          metodoCodigo: metodoPago.codigo,
+          monto: opciones?.montoRecibido || pedido.total,
+          montoNio: pedido.total,
+          banco: opciones?.bancoId
+            ? { connect: { id: opciones.bancoId } }
+            : undefined,
+          redTarjeta: opciones?.redTarjetaId
+            ? { connect: { id: opciones.redTarjetaId } }
+            : undefined,
+          referencia: opciones?.referencia || null,
+        },
+      })
+
+      // 6.4 Actualizar saldo del cliente (si es crédito)
+      if (metodoPago.esCredito && cliente) {
+        const saldoActual = Number(cliente.saldoActual)
+        const nuevoSaldo = saldoActual + Number(pedido.total)
+
+        await tx.cliente.update({
+          where: { id: cliente.id },
+          data: { saldoActual: nuevoSaldo },
+        })
+
+        await tx.auditoria.create({
+          data: {
+            usuario: { connect: { id: user.id } },
+            accion: 'cliente.credito_agregado',
+            entidadTipo: 'Cliente',
+            entidadId: cliente.id,
+            datosAntes: { saldoActual } as any,
+            datosDespues: {
+              saldoNuevo: nuevoSaldo,
+              ventaNumero: numeroVentaCompleto,
+              pedidoNumero: pedido.numero,
+            } as any,
+          },
+        })
+      }
+
+      // 6.5 Crear Factura
+      const nombreCliente = cliente
+        ? cliente.nombreComercial ||
+          `${cliente.nombre} ${cliente.apellido ?? ''}`.trim()
+        : pedido.clienteNombre
+
+      const factura = await tx.factura.create({
+        data: {
+          serie,
+          numero: numeroFacturaSucursal,
+          numeroSucursal: numeroFacturaSucursal,
+          numeroCompleto: numeroFacturaCompleto,
+          venta: { connect: { id: venta.id } },
+          sucursal: { connect: { id: user.sucursalId! } },
+          clienteNombre: nombreCliente,
+          clienteRuc: cliente?.numeroDocumento || null,
+          clienteDireccion: cliente?.direccion || pedido.clienteDireccion || null,
+          tipoDocumento: 'FACTURA',
+          subtotal: pedido.subtotal,
+          subtotalGravado: Number(pedido.subtotal) - Number(pedido.descuento),
+          subtotalExento: 0,
+          descuento: pedido.descuento,
+          iva: pedido.impuesto,
+          total: pedido.total,
+          estado: 'EMITIDA',
+        },
+      })
+
+      // 6.6 Actualizar Pedido (marcar como facturado)
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: {
+          ventaId: venta.id,
+          facturadoEn: new Date(),
+          usuarioFacturacionId: user.id,
+          estadoPago: 'PAGADO',
+          metodoPagoId: metodoPago.id,
+        },
+      })
+
+      // 6.7 Auditoría
+      await tx.auditoria.create({
+        data: {
+          usuario: { connect: { id: user.id } },
+          accion: 'pedido.cobrar',
+          entidadTipo: 'Pedido',
+          entidadId: pedidoId,
+          datosDespues: {
+            pedidoNumero: pedido.numero,
+            ventaNumero: numeroVentaCompleto,
+            facturaNumero: numeroFacturaCompleto,
+            metodoPago: metodoPago.codigo,
+            total: Number(pedido.total),
+          } as any,
+        },
+      })
+
+      return { venta, factura }
+    })
+
+    revalidatePath('/pedidos')
+    revalidatePath('/ventas')
+    revalidatePath('/facturas')
+    revalidatePath('/caja')
+    revalidatePath('/inventario')
+
+    return {
+      success: true,
+      ventaId: resultado.venta.id,
+      ventaNumero: resultado.venta.numero,
+      facturaId: resultado.factura.id,
+      facturaNumero: resultado.factura.numeroCompleto,
+    }
+  } catch (error) {
+    console.error('Error cobrando pedido:', error)
+    return {
+      error:
+        error instanceof Error ? error.message : 'Error al cobrar el pedido',
+    }
+  }
+}

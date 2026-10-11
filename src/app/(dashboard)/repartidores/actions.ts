@@ -59,12 +59,16 @@ export async function crearRepartidorAction(
     })
 
     // Asignar rol REPARTIDOR
-    const rol = await prisma.rol.findUnique({ where: { codigo: 'REPARTIDOR' } })
-    if (rol) {
-      await prisma.usuarioRol.create({
-        data: { usuarioId: repartidor.id, rolId: rol.id },
-      })
+    const rol = await prisma.rol.findUnique({
+      where: { codigo: 'REPARTIDOR' },
+    })
+    if (!rol) {
+      return { error: 'Rol REPARTIDOR no encontrado en el sistema' }
     }
+
+    await prisma.usuarioRol.create({
+      data: { usuarioId: repartidor.id, rolId: rol.id },
+    })
 
     await prisma.auditoria.create({
       data: {
@@ -108,8 +112,11 @@ export async function actualizarRepartidorAction(
       activo,
     }
 
+    // Solo actualizar contraseña si se proporciona
     if (contrasena && contrasena.length >= 8) {
       updateData.contrasenaHash = await bcrypt.hash(contrasena, 10)
+    } else if (contrasena && contrasena.length > 0) {
+      return { fieldErrors: { contrasena: ['Mínimo 8 caracteres'] } }
     }
 
     await prisma.$transaction([
@@ -142,12 +149,38 @@ export async function actualizarRepartidorAction(
 export async function toggleRepartidorAction(usuarioId: string) {
   try {
     const user = await verificarPermiso('usuarios:editar')
-    const usuario = await prisma.usuario.findUnique({ where: { id: usuarioId } })
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: usuarioId },
+    })
     if (!usuario) return { error: 'Usuario no encontrado' }
+
+    // Verificar que no tenga pedidos activos si se va a desactivar
+    if (usuario.activo) {
+      const pedidosActivos = await prisma.pedido.count({
+        where: {
+          repartidorId: usuarioId,
+          estado: { in: ['EN_CAMINO', 'LISTO', 'EN_PREPARACION'] },
+        },
+      })
+      if (pedidosActivos > 0) {
+        return {
+          error: `No se puede desactivar: tiene ${pedidosActivos} pedido(s) en curso`,
+        }
+      }
+    }
 
     await prisma.usuario.update({
       where: { id: usuarioId },
       data: { activo: !usuario.activo },
+    })
+
+    await prisma.auditoria.create({
+      data: {
+        usuario: { connect: { id: user.id } },
+        accion: usuario.activo ? 'repartidor.desactivar' : 'repartidor.activar',
+        entidadTipo: 'Usuario',
+        entidadId: usuarioId,
+      },
     })
 
     revalidatePath('/repartidores')

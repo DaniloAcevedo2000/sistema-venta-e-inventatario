@@ -15,6 +15,9 @@ import {
   Ban,
   Clock,
   Store,
+  DollarSign,
+  FileText,
+  Receipt,
 } from 'lucide-react'
 
 import {
@@ -58,7 +61,9 @@ import {
 import {
   getPedidoDetalle,
   getRepartidoresDisponibles,
+  getDatosPago,
 } from './detalle-actions'
+import { CobrarPedidoDialog } from './cobrar-pedido-dialog'
 
 type Props = {
   open: boolean
@@ -113,16 +118,26 @@ export function PedidoDetalleDialog({
   const [cancelarOpen, setCancelarOpen] = React.useState(false)
   const [motivoCancelar, setMotivoCancelar] = React.useState('')
 
+  // Cobro y facturación
+  const [cobrarOpen, setCobrarOpen] = React.useState(false)
+  const [datosPago, setDatosPago] = React.useState<{
+    metodosPago: any[]
+    bancos: any[]
+    redesTarjeta: any[]
+  }>({ metodosPago: [], bancos: [], redesTarjeta: [] })
+
   const cargarPedido = React.useCallback(async () => {
     if (!pedidoId) return
     setCargando(true)
     try {
-      const [data, reps] = await Promise.all([
+      const [data, reps, pagos] = await Promise.all([
         getPedidoDetalle(pedidoId),
         getRepartidoresDisponibles(),
+        getDatosPago(),
       ])
       setPedido(data)
       setRepartidores(reps)
+      setDatosPago(pagos)
     } catch (err: any) {
       toast.error(err.message)
     } finally {
@@ -138,6 +153,7 @@ export function PedidoDetalleDialog({
   const puedeEditar = permisos.includes('pedidos:editar')
   const puedeAsignar = permisos.includes('pedidos:asignar_repartidor')
   const puedeCancelar = permisos.includes('pedidos:cancelar')
+  const puedeCobrar = permisos.includes('pedidos:cobrar')
 
   const cambiarEstado = async (nuevoEstado: string, motivo?: string) => {
     if (!pedidoId) return
@@ -199,6 +215,7 @@ export function PedidoDetalleDialog({
   }
   const siguiente = SIGUIENTE_ESTADO[pedido.estado]
   const estaActivo = !['ENTREGADO', 'CANCELADO'].includes(pedido.estado)
+  const estaFacturado = !!pedido.facturadoEn
 
   // ============================================
   // VALIDACIÓN PARA MOSTRAR MAPA
@@ -212,6 +229,14 @@ export function PedidoDetalleDialog({
     pedido.latitudNegocio !== 0 &&
     pedido.longitudNegocio !== 0
 
+  // ============================================
+  // VALIDACIÓN PARA MOSTRAR BOTÓN DE COBRAR
+  // ============================================
+  const puedeCobrarPedido =
+    !estaFacturado &&
+    puedeCobrar &&
+    ['LISTO', 'ENTREGADO'].includes(pedido.estado)
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -219,15 +244,25 @@ export function PedidoDetalleDialog({
           className="!max-w-[95vw] w-[95vw] h-[92vh] !p-0 overflow-hidden flex flex-col gap-0"
           showCloseButton={false}
         >
-          {/* Header */}
+          {/* ============================================
+              HEADER
+              ============================================ */}
           <div className="px-6 py-4 border-b flex items-center justify-between flex-shrink-0">
             <div>
-              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <DialogTitle className="text-xl font-bold flex items-center gap-2 flex-wrap">
                 {pedido.numero}
                 <Badge className={estadoConfig.color}>{estadoConfig.label}</Badge>
-                <Badge variant={pedido.tipo === 'DELIVERY' ? 'default' : 'secondary'}>
+                <Badge
+                  variant={pedido.tipo === 'DELIVERY' ? 'default' : 'secondary'}
+                >
                   {pedido.tipo === 'DELIVERY' ? '🛵 Delivery' : '🏪 Pickup'}
                 </Badge>
+                {estaFacturado && (
+                  <Badge className="bg-green-600 gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Facturado
+                  </Badge>
+                )}
               </DialogTitle>
               <DialogDescription className="text-xs">
                 {formatearFecha(pedido.creadoEn)}
@@ -251,8 +286,46 @@ export function PedidoDetalleDialog({
             </div>
           </div>
 
-          {/* Contenido */}
+          {/* ============================================
+              CONTENIDO
+              ============================================ */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Card de info de facturación (si ya está facturado) */}
+            {estaFacturado && (
+              <Card className="border-green-500/30 bg-green-50/50 dark:bg-green-950/10">
+                <CardHeader>
+                  <CardTitle className="text-sm text-green-700 dark:text-green-400 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Pedido Facturado
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {pedido.ventaNumero && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Venta</span>
+                      <span className="font-mono font-medium">
+                        {pedido.ventaNumero}
+                      </span>
+                    </div>
+                  )}
+                  {pedido.facturaNumero && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Factura</span>
+                      <span className="font-mono font-medium">
+                        {pedido.facturaNumero}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Facturado el</span>
+                    <span className="font-medium">
+                      {formatearFecha(pedido.facturadoEn)}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Info del cliente */}
             <Card>
               <CardHeader>
@@ -316,7 +389,7 @@ export function PedidoDetalleDialog({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <MapaRutaRealWrapper 
+                  <MapaRutaRealWrapper
                     latitudOrigen={pedido.latitudNegocio}
                     longitudOrigen={pedido.longitudNegocio}
                     latitudDestino={pedido.latitud}
@@ -571,6 +644,13 @@ export function PedidoDetalleDialog({
                     completado
                   />
                 )}
+                {estaFacturado && (
+                  <TimelineItem
+                    label="Facturado y cobrado"
+                    fecha={pedido.facturadoEn}
+                    completado
+                  />
+                )}
                 {pedido.canceladoEn && (
                   <TimelineItem
                     label={`Cancelado${pedido.motivoCancelacion ? `: ${pedido.motivoCancelacion}` : ''}`}
@@ -583,39 +663,74 @@ export function PedidoDetalleDialog({
             </Card>
           </div>
 
-          {/* Footer con acciones */}
-          {estaActivo && puedeEditar && (
+          {/* ============================================
+              FOOTER CON ACCIONES
+              ============================================ */}
+          {(estaActivo || puedeCobrarPedido) && (
             <div className="p-4 border-t bg-muted/30 flex items-center justify-between gap-3 flex-shrink-0">
-              <Button
-                variant="outline"
-                onClick={() => setCancelarOpen(true)}
-                disabled={procesando || !puedeCancelar}
-                className="text-destructive"
-              >
-                <Ban className="mr-2 h-4 w-4" />
-                Cancelar pedido
-              </Button>
+              <div>
+                {estaActivo && puedeEditar && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setCancelarOpen(true)}
+                    disabled={procesando || !puedeCancelar}
+                    className="text-destructive"
+                  >
+                    <Ban className="mr-2 h-4 w-4" />
+                    Cancelar pedido
+                  </Button>
+                )}
+              </div>
 
-              {siguiente && (
-                <Button
-                  onClick={() => cambiarEstado(siguiente.estado)}
-                  disabled={procesando}
-                  size="lg"
-                >
-                  {procesando ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="mr-2 h-4 w-4" />
-                  )}
-                  {siguiente.label}
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Botón de cobrar y facturar */}
+                {puedeCobrarPedido && (
+                  <Button
+                    onClick={() => setCobrarOpen(true)}
+                    disabled={procesando}
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <DollarSign className="mr-2 h-4 w-4" />
+                    Cobrar y Facturar
+                  </Button>
+                )}
+
+                {/* Botón de siguiente estado */}
+                {estaActivo && siguiente && (
+                  <Button
+                    onClick={() => cambiarEstado(siguiente.estado)}
+                    disabled={procesando}
+                    size="lg"
+                  >
+                    {procesando ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <ArrowRight className="mr-2 h-4 w-4" />
+                    )}
+                    {siguiente.label}
+                  </Button>
+                )}
+
+                {/* Botón de cerrar si está facturado */}
+                {estaFacturado && (
+                  <Button
+                    onClick={() => onOpenChange(false)}
+                    size="lg"
+                    variant="outline"
+                  >
+                    Cerrar
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Dialog de cancelación */}
+      {/* ============================================
+          DIALOG DE CANCELACIÓN
+          ============================================ */}
       <Dialog open={cancelarOpen} onOpenChange={setCancelarOpen}>
         <DialogContent>
           <DialogHeader>
@@ -667,6 +782,31 @@ export function PedidoDetalleDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============================================
+          DIALOG DE COBRO
+          ============================================ */}
+      <CobrarPedidoDialog
+        open={cobrarOpen}
+        onOpenChange={setCobrarOpen}
+        pedido={
+          pedido
+            ? {
+                id: pedido.id,
+                numero: pedido.numero,
+                total: pedido.total,
+                clienteNombre: pedido.clienteNombre,
+                clienteId: pedido.clienteId ?? null,
+              }
+            : null
+        }
+        metodosPago={datosPago.metodosPago}
+        bancos={datosPago.bancos}
+        redesTarjeta={datosPago.redesTarjeta}
+        onSuccess={() => {
+          cargarPedido()
+        }}
+      />
     </>
   )
 }

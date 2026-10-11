@@ -12,22 +12,29 @@ export default async function RepartidoresPage() {
   if (!session?.user) redirect('/login')
   if (!session.user.permisos.includes('usuarios:leer')) redirect('/dashboard')
 
-  const repartidores = await prisma.usuario.findMany({
-    where: {
-      roles: {
-        some: { rol: { codigo: 'REPARTIDOR' } },
-      },
-    },
-    include: {
-      sucursal: { select: { nombre: true } },
-      _count: {
-        select: {
-          pedidosRepartidos: true,
+  const [repartidores, sucursales] = await Promise.all([
+    prisma.usuario.findMany({
+      where: {
+        roles: {
+          some: { rol: { codigo: 'REPARTIDOR' } },
         },
       },
-    },
-    orderBy: { nombre: 'asc' },
-  })
+      include: {
+        sucursal: { select: { id: true, nombre: true } },
+        _count: {
+          select: {
+            pedidosRepartidos: true,
+          },
+        },
+      },
+      orderBy: { nombre: 'asc' },
+    }),
+    prisma.sucursal.findMany({
+      where: { activa: true },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    }),
+  ])
 
   const repartidoresSerializados = repartidores.map((r) => ({
     id: r.id,
@@ -35,11 +42,12 @@ export default async function RepartidoresPage() {
     correo: r.correo,
     telefono: r.telefono,
     activo: r.activo,
+    sucursalId: r.sucursalId,
     sucursalNombre: r.sucursal?.nombre ?? null,
     cantidadPedidos: r._count.pedidosRepartidos,
   }))
 
-  // Estadísticas
+  // Stats
   const activos = repartidores.filter((r) => r.activo).length
   const totalPedidos = repartidores.reduce(
     (sum, r) => sum + r._count.pedidosRepartidos,
@@ -57,6 +65,7 @@ export default async function RepartidoresPage() {
 
       <RepartidoresTable
         repartidores={repartidoresSerializados}
+        sucursales={sucursales}
         permisos={session.user.permisos}
         stats={{
           total: repartidores.length,

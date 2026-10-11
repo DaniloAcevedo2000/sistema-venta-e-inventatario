@@ -45,8 +45,14 @@ type Repartidor = {
   correo: string
   telefono: string | null
   activo: boolean
+  sucursalId: string | null
   sucursalNombre: string | null
   cantidadPedidos: number
+}
+
+type Sucursal = {
+  id: string
+  nombre: string
 }
 
 type Stats = {
@@ -57,11 +63,17 @@ type Stats = {
 
 type Props = {
   repartidores: Repartidor[]
+  sucursales: Sucursal[]
   permisos: string[]
   stats: Stats
 }
 
-export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
+export function RepartidoresTable({
+  repartidores,
+  sucursales,
+  permisos,
+  stats,
+}: Props) {
   const [search, setSearch] = React.useState('')
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editar, setEditar] = React.useState<Repartidor | null>(null)
@@ -134,7 +146,9 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-muted-foreground">Pedidos entregados</p>
+                  <p className="text-xs text-muted-foreground">
+                    Pedidos entregados
+                  </p>
                   <p className="text-2xl font-bold">{stats.totalPedidos}</p>
                 </div>
                 <PackageCheck className="h-8 w-8 text-blue-500/50" />
@@ -145,8 +159,8 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
       </div>
 
       {/* Filtros */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="relative flex-1 max-w-sm min-w-[200px]">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por nombre, correo, teléfono..."
@@ -174,7 +188,7 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nombre</TableHead>
+              <TableHead>Repartidor</TableHead>
               <TableHead>Contacto</TableHead>
               <TableHead>Sucursal</TableHead>
               <TableHead className="text-center">Pedidos</TableHead>
@@ -187,10 +201,13 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
               <TableRow>
                 <TableCell
                   colSpan={6}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-32 text-center text-muted-foreground"
                 >
                   <Truck className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>No hay repartidores registrados</p>
+                  <p className="font-medium">No hay repartidores registrados</p>
+                  <p className="text-sm">
+                    Crea el primer repartidor para empezar
+                  </p>
                 </TableCell>
               </TableRow>
             ) : (
@@ -222,9 +239,7 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
                     {r.sucursalNombre ?? '—'}
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant="secondary">
-                      {r.cantidadPedidos}
-                    </Badge>
+                    <Badge variant="secondary">{r.cantidadPedidos}</Badge>
                   </TableCell>
                   <TableCell>
                     {r.activo ? (
@@ -254,9 +269,7 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
                               <Pencil className="mr-2 h-4 w-4" />
                               Editar
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleToggle(r)}
-                            >
+                            <DropdownMenuItem onClick={() => handleToggle(r)}>
                               <Power className="mr-2 h-4 w-4" />
                               {r.activo ? 'Desactivar' : 'Activar'}
                             </DropdownMenuItem>
@@ -276,6 +289,7 @@ export function RepartidoresTable({ repartidores, permisos, stats }: Props) {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         repartidor={editar}
+        sucursales={sucursales}
       />
     </div>
   )

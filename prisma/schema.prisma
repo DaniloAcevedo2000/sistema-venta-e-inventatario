@@ -45,6 +45,7 @@ model Usuario {
 
   pedidosCreados    Pedido[] @relation("PedidoCreadoPor")
   pedidosRepartidos Pedido[] @relation("PedidoRepartidor")
+  pedidosFacturados   Pedido[] @relation("PedidoFacturadoPor") 
 
   creadoEn      DateTime  @default(now()) @map("creado_en")
   actualizadoEn DateTime  @updatedAt @map("actualizado_en")
@@ -1248,7 +1249,6 @@ model Pedido {
   numero         String @unique // "P-2026-00001"
   numeroSucursal Int    @map("numero_sucursal")
 
-  // Tipo: DELIVERY o PICKUP
   tipo String // "DELIVERY", "PICKUP"
 
   // Estado del pedido
@@ -1285,6 +1285,11 @@ model Pedido {
 
   // Hora programada (opcional)
   fechaProgramada DateTime? @map("fecha_programada")
+
+    // Facturación
+  facturadoEn           DateTime? @map("facturado_en")
+  usuarioFacturacionId  String?   @map("usuario_facturacion_id")
+  usuarioFacturacion    Usuario?  @relation("PedidoFacturadoPor", fields: [usuarioFacturacionId], references: [id])
 
   // Totales
   subtotal   Decimal @default(0) @db.Decimal(12, 2)

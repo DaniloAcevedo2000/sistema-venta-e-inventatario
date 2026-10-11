@@ -106,3 +106,40 @@ export async function getRepartidoresDisponibles() {
 
   return repartidores
 }
+
+export async function getDatosPago() {
+  const session = await auth()
+  if (!session?.user) throw new Error('No autenticado')
+
+  const [metodosPago, bancos, redesTarjeta] = await Promise.all([
+    prisma.metodoPago.findMany({
+      where: { activo: true },
+      include: { moneda: true },
+      orderBy: { orden: 'asc' },
+    }),
+    prisma.banco.findMany({
+      where: { activo: true },
+      orderBy: { orden: 'asc' },
+    }),
+    prisma.redTarjeta.findMany({
+      where: { activo: true },
+      orderBy: { orden: 'asc' },
+    }),
+  ])
+
+  return {
+    metodosPago: metodosPago.map((m) => ({
+      id: m.id,
+      codigo: m.codigo,
+      nombre: m.nombre,
+      tipo: m.tipo,
+      requiereBanco: m.requiereBanco,
+      requiereRed: m.requiereRed,
+      requiereReferencia: m.requiereReferencia,
+      esCredito: m.esCredito,
+      icono: m.icono,
+    })),
+    bancos: bancos.map((b) => ({ id: b.id, nombre: b.nombre })),
+    redesTarjeta: redesTarjeta.map((r) => ({ id: r.id, nombre: r.nombre })),
+  }
+}
