@@ -141,7 +141,6 @@ export async function recibirOrdenCompraAction(ordenId: string) {
             }
           })
         } 
-        // (Opcional) Aquí puedes agregar la lógica si compras productos terminados
       }
     })
 
@@ -172,7 +171,7 @@ export async function cancelarOrdenCompraAction(ordenId: string) {
 // ============================================
 export async function recibirOrdenParcialAction(
   ordenId: string,
-  cantidadesRecibidas: Record<string, number> // { itemId: cantidadRecibida }
+  cantidadesRecibidas: Record<string, number>
 ) {
   try {
     const user = await requirePermiso('compras:editar')
@@ -187,26 +186,23 @@ export async function recibirOrdenParcialAction(
       throw new Error('La orden no está en un estado válido para recibir')
     }
 
-    await prisma.$transaction(async (tx) => {
-      let todoRecibido = true
+    let todoRecibidoFinal = true // 👈 Variable declarada fuera del bucle
 
+    await prisma.$transaction(async (tx) => {
       for (const item of orden.items) {
         const cantidadPedida = Number(item.cantidad)
         const yaRecibida = Number(item.cantidadRecibida)
         const cantNueva = cantidadesRecibidas[item.id] || 0
         
-        // Validar que no reciba más de lo pendiente
         const pendiente = cantidadPedida - yaRecibida
         const cantAplicar = Math.min(cantNueva, pendiente)
 
         if (cantAplicar > 0) {
-          // 1. Actualizar ItemCompra
           await tx.itemCompra.update({
             where: { id: item.id },
             data: { cantidadRecibida: yaRecibida + cantAplicar }
           })
 
-          // 2. Actualizar Inventario
           if (item.insumoId) {
             const stock = await tx.stock.findFirst({
               where: { insumoId: item.insumoId, sucursalId: orden.sucursalId }
@@ -223,7 +219,6 @@ export async function recibirOrdenParcialAction(
               })
             }
 
-            // 3. Kardex
             await tx.movimientoInventario.create({
               data: {
                 insumoId: item.insumoId,
@@ -243,25 +238,23 @@ export async function recibirOrdenParcialAction(
           }
         }
 
-        // Verificar si este item ya se completó
         if ((yaRecibida + cantAplicar) < cantidadPedida) {
-          todoRecibido = false
+          todoRecibidoFinal = false
         }
       }
 
-      // 4. Actualizar el estado de la Orden
       await tx.ordenCompra.update({
         where: { id: ordenId },
         data: { 
-          estado: todoRecibido ? 'RECIBIDA' : 'RECIBIDA_PARCIAL',
-          fechaRecepcion: todoRecibido ? new Date() : undefined
+          estado: todoRecibidoFinal ? 'RECIBIDA' : 'RECIBIDA_PARCIAL',
+          fechaRecepcion: todoRecibidoFinal ? new Date() : undefined
         }
       })
     })
 
     revalidatePath('/compras')
     revalidatePath('/inventario')
-    return { success: true, todoRecibido }
+    return { success: true, todoRecibido: todoRecibidoFinal }
   } catch (err: any) {
     return { error: err.message || 'Error al recibir orden' }
   }

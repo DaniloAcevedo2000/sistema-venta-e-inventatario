@@ -64,12 +64,31 @@ type Entrega = {
   entregadoEn: string | null
 }
 
-type EntregaDetalle = Entrega & {
+type EntregaDetalle = {
+  id: string
+  numero: string
+  estado: string
   tipo: string
+  clienteNombre: string
+  clienteTelefono: string
+  clienteDireccion: string | null
+  zonaNombre: string | null
+  sucursalNombre: string
   subtotal: number
   descuento: number
   impuesto: number
+  costoEnvio: number
+  total: number
   estadoPago: string
+  notas: string | null
+  notasInternas: string | null
+  latitud: number | null
+  longitud: number | null
+  latitudNegocio: number
+  longitudNegocio: number
+  creadoEn: string
+  enCaminoEn: string | null
+  entregadoEn: string | null
   items: Array<{
     id: string
     nombreProducto: string

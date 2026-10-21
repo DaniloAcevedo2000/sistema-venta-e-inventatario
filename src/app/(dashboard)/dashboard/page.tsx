@@ -85,7 +85,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalVentas = ventas.reduce((s, v) => s + n(v.total), 0)
   const ticket = totalVentas / (ventas.length || 1)
 
-  // Calendario continuo: los días sin ventas aparecen con cero.
   const daily: Record<string, { ventas: number; ticketSum: number; tickets: number; descuento: number }> = {}
   const orderDaily: Record<string, number> = {}
   const invoiceDaily: Record<string, { facturado: number; cobrado: number }> = {}
@@ -213,11 +212,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const recipeData = recetas.map(r => {
     const costo = r.items.reduce((sum, ri) => sum + n(ri.insumo.costoUnitario) * n(ri.cantidad) * (1 + n(ri.mermaPorcentaje) / 100), 0)
-    const nombre = r.variante?.nombre ? `${r.producto.nombre} · ${r.variante.nombre}` : r.producto.nombre
+    const nombre = r.producto.nombre
     const ventasProducto = productos.filter(p => p.name === nombre || p.name.startsWith(`${r.producto.nombre} ·`))
     const cantidadVendida = ventasProducto.reduce((sum, p) => sum + p.cantidad, 0)
     const margen = ventasProducto.reduce((sum, p) => sum + p.margen, 0)
-    const precio = n(r.producto.precioBase) // Ajustado a precioBase de tu schema
+    const precio = n(r.producto.precioBase)
     return { name: nombre, costo, precio, cantidadVendida, margen, ingredientes: r.items.length }
   }).sort((a, b) => b.costo - a.costo)
 
@@ -228,7 +227,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
   const ingredientesCosto = Object.entries(ingredientMap).map(([name, costo]) => ({ name, costo })).sort((a, b) => b.costo - a.costo).slice(0, 12)
 
-  // Tiempo de etapas
   const avgMinutes = (a: Date | null, b: Date | null) => a && b ? Math.max(0, (b.getTime() - a.getTime()) / 60000) : null
   const stageDefs = [
     ['Confirmación', (p:any) => avgMinutes(p.creadoEn, p.confirmadoEn)],

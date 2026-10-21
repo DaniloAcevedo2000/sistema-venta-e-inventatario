@@ -134,7 +134,7 @@ export async function anularVentaAction(
           venta.sucursalId,
           tx
         )
-        const numeroNCCompleto = formatNotaCredito(numNC)
+        const numeroNCCompleto = formatNotaCredito(numNC, 'NATURA')
 
         notaCredito = await tx.notaCredito.create({
           data: {
