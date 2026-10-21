@@ -1,7 +1,14 @@
 'use client'
 
 import { ColumnDef } from '@tanstack/react-table'
-import { MoreHorizontal, Pencil, Power, Trash2, ChevronRight, ChevronDown } from 'lucide-react'
+import {
+  MoreHorizontal,
+  Pencil,
+  Power,
+  Trash2,
+  ChevronRight,
+  ChevronDown,
+} from 'lucide-react'
 import Link from 'next/link'
 import * as Icons from 'lucide-react'
 
@@ -54,8 +61,12 @@ export const columnas: ColumnDef<CategoriaRow, any>[] = [
       const hasChildren = meta.hasChildren?.(cat.id) ?? false
       const isExpanded = meta.expandedIds?.has(cat.id) ?? false
 
+      // ✅ Fix: agregar `style` a la firma de props del componente
       const Icon = cat.icono
-        ? (Icons[cat.icono as keyof typeof Icons] as React.ComponentType<{ className?: string }>)
+        ? (Icons[cat.icono as keyof typeof Icons] as React.ComponentType<{
+            className?: string
+            style?: React.CSSProperties
+          }>)
         : null
 
       return (
@@ -82,7 +93,9 @@ export const columnas: ColumnDef<CategoriaRow, any>[] = [
           {Icon ? (
             <div
               className="h-8 w-8 rounded-md flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: cat.color ? `${cat.color}20` : '#E8E0D820' }}
+              style={{
+                backgroundColor: cat.color ? `${cat.color}20` : '#E8E0D820',
+              }}
             >
               <Icon
                 className="h-4 w-4"
@@ -123,9 +136,7 @@ export const columnas: ColumnDef<CategoriaRow, any>[] = [
     accessorFn: (row) => row._count.productos,
     header: 'Productos',
     cell: ({ row }) => (
-      <Badge variant="secondary">
-        {row.original._count.productos}
-      </Badge>
+      <Badge variant="secondary">{row.original._count.productos}</Badge>
     ),
   },
   {
@@ -154,7 +165,11 @@ export const columnas: ColumnDef<CategoriaRow, any>[] = [
     cell: ({ row, table }) => {
       const cat = row.original
       const meta = table.options.meta as {
-        onToggleActivo?: (id: string, nombre: string, activoActual: boolean) => void
+        onToggleActivo?: (
+          id: string,
+          nombre: string,
+          activoActual: boolean
+        ) => void
         onEliminar?: (id: string, nombre: string) => void
         permisos?: string[]
       }
@@ -180,7 +195,9 @@ export const columnas: ColumnDef<CategoriaRow, any>[] = [
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => meta.onToggleActivo?.(cat.id, cat.nombre, cat.activo)}
+                  onClick={() =>
+                    meta.onToggleActivo?.(cat.id, cat.nombre, cat.activo)
+                  }
                 >
                   <Power className="mr-2 h-4 w-4" />
                   {cat.activo ? 'Desactivar' : 'Activar'}

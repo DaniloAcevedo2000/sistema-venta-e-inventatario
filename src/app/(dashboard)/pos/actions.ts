@@ -1,8 +1,20 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requirePermiso } from '@/lib/helpers/permisos-server'
+import {
+  siguienteCorrelativo,
+  formatVenta,
+  formatFactura,
+} from '@/lib/helpers/correlativos'
+import { descontarStockDeItems } from '@/lib/helpers/inventario'
+import {
+  getTasaCambioActiva,
+  getSerieFactura,
+  getSesionCajaAbierta,
+  getCodigoSucursal, // 👈 Importamos el nuevo helper
+} from '@/lib/helpers/negocio'
 
 type ItemCarrito = {
   id: string
@@ -26,7 +38,8 @@ type CrearVentaPayload = {
   bancoId?: string
   redTarjetaId?: string
   referencia?: string
-  tasaCambio: number
+  /** Opcional: si no se pasa, se lee la tasa activa desde TasaCambio */
+  tasaCambio?: number
   sesionCajaId?: string
   clienteId?: string
 }
@@ -44,18 +57,11 @@ type ResultadoVenta = {
   }
 }
 
-async function verificarPermiso(permiso: string) {
-  const session = await auth()
-  if (!session?.user) throw new Error('No autenticado')
-  if (!session.user.permisos.includes(permiso)) throw new Error('Sin permisos')
-  return session.user
-}
-
 export async function crearVentaAction(
   payload: CrearVentaPayload
 ): Promise<ResultadoVenta> {
   try {
-    const user = await verificarPermiso('ventas:crear')
+    const user = await requirePermiso('ventas:crear')
 
     if (!user.sucursalId) {
       return { success: false, error: 'Usuario sin sucursal asignada' }
@@ -68,29 +74,19 @@ export async function crearVentaAction(
     const sucursalId = user.sucursalId
 
     // ============================================
-    // VALIDAR SESIÓN DE CAJA
+    // 1. SESIÓN DE CAJA
     // ============================================
     let sesionCajaId = payload.sesionCajaId
-
     if (!sesionCajaId) {
-      const sesionAbierta = await prisma.sesionCaja.findFirst({
-        where: {
-          usuarioAperturaId: user.id,
-          estado: 'ABIERTA',
-        },
-      })
-
-      if (!sesionAbierta) {
-        return {
-          success: false,
-          error: 'No tienes una caja abierta.',
-        }
+      const sesion = await getSesionCajaAbierta(user.id)
+      if (!sesion) {
+        return { success: false, error: 'No tienes una caja abierta.' }
       }
-      sesionCajaId = sesionAbierta.id
+      sesionCajaId = sesion.id
     }
 
     // ============================================
-    // VALIDAR MÉTODO DE PAGO
+    // 2. MÉTODO DE PAGO
     // ============================================
     const metodoPago = await prisma.metodoPago.findUnique({
       where: { id: payload.metodoPagoId },
@@ -100,17 +96,15 @@ export async function crearVentaAction(
     if (!metodoPago || !metodoPago.activo) {
       return { success: false, error: 'Método de pago no válido' }
     }
-
     if (metodoPago.requiereBanco && !payload.bancoId) {
       return { success: false, error: 'Debes seleccionar un banco' }
     }
-
     if (metodoPago.requiereRed && !payload.redTarjetaId) {
       return { success: false, error: 'Debes seleccionar la red de tarjeta' }
     }
 
     // ============================================
-    // CALCULAR TOTALES
+    // 3. CÁLCULO DE TOTALES
     // ============================================
     let subtotal = 0
     let descuentoTotal = 0
@@ -142,10 +136,9 @@ export async function crearVentaAction(
     const total = subtotal - descuentoTotal
 
     // ============================================
-    // VALIDAR CLIENTE Y CRÉDITO
+    // 4. CLIENTE Y CRÉDITO
     // ============================================
     let cliente: any = null
-
     if (metodoPago.esCredito) {
       if (!payload.clienteId) {
         return {
@@ -161,7 +154,6 @@ export async function crearVentaAction(
       if (!cliente || !cliente.activo) {
         return { success: false, error: 'Cliente no válido o inactivo' }
       }
-
       if (!cliente.permiteCredito) {
         return {
           success: false,
@@ -180,68 +172,57 @@ export async function crearVentaAction(
         }
       }
     } else if (payload.clienteId) {
-      // Si no es crédito pero hay cliente seleccionado, cargarlo
       cliente = await prisma.cliente.findUnique({
         where: { id: payload.clienteId },
       })
     }
 
     // ============================================
-    // GENERAR NÚMEROS CORRELATIVOS
+    // 5. TASA DE CAMBIO, SERIE Y CÓDIGO SUCURSAL
     // ============================================
-    const año = new Date().getFullYear()
-
-    const ultimaVenta = await prisma.venta.findFirst({
-      where: { sucursalId },
-      orderBy: { numeroSucursal: 'desc' },
-      select: { numeroSucursal: true },
-    })
-    const numeroVentaSucursal = (ultimaVenta?.numeroSucursal ?? 0) + 1
-    const numeroVentaCompleto = `V-${año}-${String(numeroVentaSucursal).padStart(6, '0')}`
-
-    const ultimaFactura = await prisma.factura.findFirst({
-      where: { sucursalId },
-      orderBy: { numeroSucursal: 'desc' },
-      select: { numeroSucursal: true },
-    })
-    const numeroFacturaSucursal = (ultimaFactura?.numeroSucursal ?? 0) + 1
-
-    const configSerie = await prisma.configuracion.findUnique({
-      where: { clave: 'factura.serie' },
-    })
-    const serie = configSerie?.valor ?? 'A'
-    const numeroFacturaCompleto = `${serie}-${String(numeroFacturaSucursal).padStart(6, '0')}`
+    const tasaCambio = payload.tasaCambio ?? (await getTasaCambioActiva())
+    const serie = await getSerieFactura()
+    const sucursalCodigo = await getCodigoSucursal(sucursalId) // 👈 Obtenemos el código
 
     // ============================================
-    // CREAR VENTA + ITEMS + PAGO + FACTURA
+    // 6. TRANSACCIÓN
     // ============================================
     const resultado = await prisma.$transaction(async (tx) => {
-      // 1. Crear venta
+      // 6.1 Correlativos atómicos (sin race condition)
+      const numVenta = await siguienteCorrelativo('VENTA', sucursalId, tx)
+      const numFactura = await siguienteCorrelativo('FACTURA', sucursalId, tx)
+
+      // 👈 Usamos el código de la sucursal en el formato
+      const numeroVentaCompleto = formatVenta(numVenta, sucursalCodigo)
+      const numeroFacturaCompleto = formatFactura(serie, numFactura, sucursalCodigo)
+
+      // 6.2 Crear venta
       const venta = await tx.venta.create({
         data: {
           numero: numeroVentaCompleto,
-          numeroSucursal: numeroVentaSucursal,
+          numeroSucursal: numVenta,
           tipo: metodoPago.esCredito ? 'CREDITO' : 'CONTADO',
           estado: 'COMPLETADA',
           subtotal,
           descuento: descuentoTotal,
           impuesto: ivaTotal,
           total,
-          tasaCambio: payload.tasaCambio,
+          tasaCambio,
           totalEfectivoNio: metodoPago.codigo === 'EFECTIVO_NIO' ? total : 0,
           totalEfectivoUsd:
             metodoPago.codigo === 'EFECTIVO_USD' ? payload.montoRecibido : 0,
           totalTarjeta: metodoPago.codigo === 'TARJETA' ? total : 0,
-          totalTransferencia: metodoPago.codigo === 'TRANSFERENCIA' ? total : 0,
+          totalTransferencia:
+            metodoPago.codigo === 'TRANSFERENCIA' ? total : 0,
           totalCredito: metodoPago.esCredito ? total : 0,
           sucursal: { connect: { id: sucursalId } },
           usuario: { connect: { id: user.id } },
-          sesionCaja: { connect: { id: sesionCajaId } },
+          sesionCaja: { connect: { id: sesionCajaId! } },
           ...(cliente && { cliente: { connect: { id: cliente.id } } }),
         },
       })
 
-      // 2. Crear items + descontar inventario
+      // 6.3 Items de venta
       for (const item of itemsCalculados) {
         await tx.itemVenta.create({
           data: {
@@ -262,63 +243,25 @@ export async function crearVentaAction(
             notas: item.notas || null,
           },
         })
-
-        const receta = await tx.receta.findUnique({
-          where: { productoId: item.productoId },
-          include: { items: true },
-        })
-
-        if (receta && receta.activa) {
-          for (const recetaItem of receta.items) {
-            const cantidadConsumir =
-              Number(recetaItem.cantidad) *
-              item.cantidad *
-              (1 + Number(recetaItem.mermaPorcentaje) / 100)
-
-            const stock = await tx.stock.findFirst({
-              where: {
-                insumoId: recetaItem.insumoId,
-                sucursalId,
-              },
-            })
-
-            const cantidadAnterior = stock ? Number(stock.cantidad) : 0
-            const cantidadNueva = Math.max(0, cantidadAnterior - cantidadConsumir)
-
-            if (stock) {
-              await tx.stock.update({
-                where: { id: stock.id },
-                data: { cantidad: cantidadNueva },
-              })
-            } else {
-              await tx.stock.create({
-                data: {
-                  insumo: { connect: { id: recetaItem.insumoId } },
-                  sucursal: { connect: { id: sucursalId } },
-                  cantidad: 0,
-                },
-              })
-            }
-
-            await tx.movimientoInventario.create({
-              data: {
-                insumo: { connect: { id: recetaItem.insumoId } },
-                sucursal: { connect: { id: sucursalId } },
-                usuario: { connect: { id: user.id } },
-                tipo: 'SALIDA_VENTA',
-                cantidad: -cantidadConsumir,
-                cantidadAnterior,
-                cantidadNueva,
-                referenciaTipo: 'venta',
-                referenciaId: venta.id,
-                motivo: `Venta ${numeroVentaCompleto}`,
-              },
-            })
-          }
-        }
       }
 
-      // 3. Crear pago
+      // 6.4 Descontar stock — HELPER UNIFICADO
+      await descontarStockDeItems({
+        tx,
+        items: itemsCalculados.map((i) => ({
+          productoId: i.productoId,
+          varianteId: i.varianteId,
+          cantidad: i.cantidad,
+          nombreProducto: i.nombre,
+        })),
+        sucursalId,
+        usuarioId: user.id,
+        referenciaTipo: 'venta',
+        referenciaId: venta.id,
+        motivo: `Venta ${numeroVentaCompleto}`,
+      })
+
+      // 6.5 Pago
       await tx.pagoVenta.create({
         data: {
           venta: { connect: { id: venta.id } },
@@ -327,10 +270,10 @@ export async function crearVentaAction(
           monto: payload.montoRecibido || total,
           montoNio:
             metodoPago.codigo === 'EFECTIVO_USD'
-              ? payload.montoRecibido * payload.tasaCambio
+              ? payload.montoRecibido * tasaCambio
               : total,
           tasaCambio:
-            metodoPago.codigo === 'EFECTIVO_USD' ? payload.tasaCambio : null,
+            metodoPago.codigo === 'EFECTIVO_USD' ? tasaCambio : null,
           banco: payload.bancoId
             ? { connect: { id: payload.bancoId } }
             : undefined,
@@ -341,7 +284,7 @@ export async function crearVentaAction(
         },
       })
 
-      // 4. ACTUALIZAR SALDO DEL CLIENTE SI ES CRÉDITO
+      // 6.6 Actualizar saldo del cliente si es crédito
       if (metodoPago.esCredito && cliente) {
         const saldoActual = Number(cliente.saldoActual)
         const nuevoSaldo = saldoActual + total
@@ -367,7 +310,7 @@ export async function crearVentaAction(
         })
       }
 
-      // 5. Crear factura
+      // 6.7 Factura
       const nombreCliente = cliente
         ? cliente.nombreComercial ||
           `${cliente.nombre} ${cliente.apellido ?? ''}`.trim()
@@ -376,8 +319,8 @@ export async function crearVentaAction(
       const factura = await tx.factura.create({
         data: {
           serie,
-          numero: numeroFacturaSucursal,
-          numeroSucursal: numeroFacturaSucursal,
+          numero: numFactura,
+          numeroSucursal: numFactura,
           numeroCompleto: numeroFacturaCompleto,
           venta: { connect: { id: venta.id } },
           sucursal: { connect: { id: sucursalId } },
@@ -395,7 +338,7 @@ export async function crearVentaAction(
         },
       })
 
-      // 6. Auditoría
+      // 6.8 Auditoría
       await tx.auditoria.create({
         data: {
           usuario: { connect: { id: user.id } },
@@ -415,6 +358,17 @@ export async function crearVentaAction(
 
       return { venta, factura }
     })
+
+     // ENVIAR CORREO AUTOMÁTICO AL COBRAR
+    if (cliente?.correo) {
+      const { enviarFacturaPorEmail } = await import('@/lib/email/send-factura')
+      
+      enviarFacturaPorEmail(resultado.factura.id, cliente.correo)
+        .then((res) => {
+          if (!res.success) console.error('Fallo al enviar correo:', res.error)
+        })
+        .catch((err) => console.error('Error inesperado en email:', err))
+    }
 
     revalidatePath('/pos')
     revalidatePath('/inventario')

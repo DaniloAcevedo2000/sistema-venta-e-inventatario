@@ -115,8 +115,8 @@ export function ProductosTable({ productos, categorias, permisos }: Props) {
   const ejecutarAccion = async () => {
     if (!dialogAccion) return
 
-    if (motivo.trim().length < 3) {
-      toast.error('El motivo debe tener al menos 3 caracteres')
+    if (motivo.trim().length < 10) {
+      toast.error('El motivo debe tener al menos 10 caracteres')
       return
     }
 

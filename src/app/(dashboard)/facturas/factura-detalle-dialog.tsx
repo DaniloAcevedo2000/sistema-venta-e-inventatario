@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/card'
 import { generarBoucherPDF, generarFacturaA4PDF } from '@/lib/pdf/actions'
 import type { FacturaRow } from './columnas'
+import { EnviarFacturaDialog } from '@/components/enviar-factura-dialog'
 
 type Props = {
   open: boolean
@@ -233,6 +234,9 @@ export function FacturaDetalleDialog({ open, onOpenChange, factura }: Props) {
                 </Tabs>
 
                 <div className="flex items-center gap-2">
+                  
+                  <EnviarFacturaDialog facturaId={factura.id} />
+
                   <Button
                     variant="outline"
                     size="sm"

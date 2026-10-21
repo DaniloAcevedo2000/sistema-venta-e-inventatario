@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { Palette } from 'lucide-react' 
 
 export const metadata = {
   title: 'Configuración | Momoto Café',
@@ -32,6 +33,14 @@ export default async function ConfiguracionPage() {
   }
 
   const opciones = [
+    {
+      title: 'Identidad Visual (Branding)',
+      description: 'Nombre de la empresa, colores y logotipo',
+      href: '/configuracion/branding', 
+      icon: Palette,
+      color: 'from-primary/10 to-primary/5 border-primary/20',
+      iconColor: 'text-primary',
+    },
     {
       title: 'Configuración de Pagos',
       description: 'Bancos, métodos de pago, redes de tarjeta y tasa de cambio',
@@ -79,6 +88,14 @@ export default async function ConfiguracionPage() {
       icon: Wallet,
       color: 'from-amber-500/10 to-amber-600/5 border-amber-500/20',
       iconColor: 'text-amber-600',
+    },
+    {
+      title: 'Roles y Permisos',
+      description: 'Configuración de roles y permisos de acceso',
+      href: '/roles',
+      icon: ShieldCheck,
+      color: 'from-red-500/10 to-red-600/5 border-red-500/20',
+      iconColor: 'text-red-600',
     },
   ]
 

@@ -47,7 +47,7 @@ export default async function ProductosPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Productos</h1>
+        <h3 className="text-2xl font-bold tracking-tight">Productos</h3>
         <p className="text-muted-foreground">
           Gestiona el catálogo de productos del sistema
         </p>

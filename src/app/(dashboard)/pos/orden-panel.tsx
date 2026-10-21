@@ -10,7 +10,9 @@ import {
   Percent,
   StickyNote,
   Wallet,
+  AlertTriangle,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -56,6 +58,7 @@ type Props = {
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
   clientes: ClienteConfig[]
+  stockPorProductoId: Record<string, number>
   sesionCajaAbierta: SesionCajaInfo
 }
 
@@ -66,6 +69,7 @@ export function OrdenPanel({
   bancos,
   redesTarjeta,
   clientes,
+  stockPorProductoId,
   sesionCajaAbierta,
 }: Props) {
   const items = usePosStore((s) => s.items)
@@ -83,7 +87,28 @@ export function OrdenPanel({
   const [cobrarOpen, setCobrarOpen] = React.useState(false)
   const [ventaExitosa, setVentaExitosa] = React.useState<any>(null)
 
-  const puedeCobrar = items.length > 0
+  // ============================================
+  // VALIDACIÓN DE STOCK
+  // ============================================
+  const cantidadPorProducto = React.useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const item of items) {
+      map[item.productoId] = (map[item.productoId] ?? 0) + item.cantidad
+    }
+    return map
+  }, [items])
+
+  const itemSuperaStock = (productoId: string): boolean => {
+    const disponible = stockPorProductoId[productoId]
+    if (disponible === undefined) return false
+    const enCarrito = cantidadPorProducto[productoId] ?? 0
+    return enCarrito > disponible
+  }
+
+  const itemsExcedidos = items.filter((i) => itemSuperaStock(i.productoId))
+  const hayExceso = itemsExcedidos.length > 0
+
+  const puedeCobrar = items.length > 0 && !hayExceso
   const puedeDescontar = usuario.permisos.includes('ventas:descuento')
 
   return (
@@ -124,25 +149,49 @@ export function OrdenPanel({
           </div>
         ) : (
           <div className="p-3 space-y-2">
-            {items.map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                puedeDescontar={puedeDescontar}
-                onEliminar={() => eliminarItem(item.id)}
-                onCantidadChange={(c) => actualizarCantidad(item.id, c)}
-                onDescuentoChange={(d) => actualizarDescuento(item.id, d)}
-                onNotasChange={(n) => actualizarNotas(item.id, n)}
-              />
-            ))}
+            {items.map((item) => {
+              const excedido = itemSuperaStock(item.productoId)
+              const disponible = stockPorProductoId[item.productoId]
+              const enCarrito = cantidadPorProducto[item.productoId] ?? 0
+
+              return (
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  excedido={excedido}
+                  disponible={disponible}
+                  enCarrito={enCarrito}
+                  puedeDescontar={puedeDescontar}
+                  onEliminar={() => eliminarItem(item.id)}
+                  onCantidadChange={(c) => actualizarCantidad(item.id, c)}
+                  onDescuentoChange={(d) => actualizarDescuento(item.id, d)}
+                  onNotasChange={(n) => actualizarNotas(item.id, n)}
+                />
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* Totales y botones */}
+      {/* Totales */}
       {items.length > 0 && (
         <>
           <Separator />
+
+          {hayExceso && (
+            <div className="mx-3 mt-3 p-3 rounded-lg border border-destructive/30 bg-destructive/10 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="text-xs">
+                <p className="font-medium text-destructive">
+                  Hay productos sin stock suficiente
+                </p>
+                <p className="text-muted-foreground mt-0.5">
+                  Ajusta las cantidades antes de cobrar.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="p-4 space-y-3 bg-muted/30">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Subtotal</span>
@@ -195,6 +244,9 @@ export function OrdenPanel({
                 disabled={!puedeCobrar}
                 className="flex-1 h-11"
                 size="lg"
+                title={
+                  hayExceso ? 'Hay productos sin stock suficiente' : undefined
+                }
               >
                 <Receipt className="mr-2 h-4 w-4" />
                 Cobrar
@@ -204,7 +256,6 @@ export function OrdenPanel({
         </>
       )}
 
-      {/* Dialog de cobro */}
       <CobrarDialog
         open={cobrarOpen}
         onOpenChange={setCobrarOpen}
@@ -235,6 +286,9 @@ export function OrdenPanel({
 // ============================================
 function ItemCard({
   item,
+  excedido,
+  disponible,
+  enCarrito,
   puedeDescontar,
   onEliminar,
   onCantidadChange,
@@ -243,6 +297,7 @@ function ItemCard({
 }: {
   item: {
     id: string
+    productoId: string
     nombre: string
     nombreVariante: string | null
     precioUnitario: number
@@ -251,6 +306,9 @@ function ItemCard({
     notas: string
     color: string | null
   }
+  excedido: boolean
+  disponible: number | undefined
+  enCarrito: number
   puedeDescontar: boolean
   onEliminar: () => void
   onCantidadChange: (c: number) => void
@@ -259,12 +317,26 @@ function ItemCard({
 }) {
   const [descuentoOpen, setDescuentoOpen] = React.useState(false)
   const [notasOpen, setNotasOpen] = React.useState(false)
-  const [descuentoInput, setDescuentoInput] = React.useState(String(item.descuento))
+  const [descuentoInput, setDescuentoInput] = React.useState(
+    String(item.descuento)
+  )
   const [notasInput, setNotasInput] = React.useState(item.notas)
 
   const subtotal = item.precioUnitario * item.cantidad
   const descuentoMonto = (subtotal * item.descuento) / 100
   const totalItem = subtotal - descuentoMonto
+
+  const puedeAumentar = disponible === undefined || enCarrito < disponible
+
+  const intentarAumentar = () => {
+    if (!puedeAumentar) {
+      toast.error(`No hay más stock. Disponible: ${disponible ?? 0}`, {
+        id: `stock-${item.productoId}`,
+      })
+      return
+    }
+    onCantidadChange(item.cantidad + 1)
+  }
 
   const aplicarDescuento = () => {
     const valor = Math.max(0, Math.min(100, parseFloat(descuentoInput) || 0))
@@ -278,7 +350,12 @@ function ItemCard({
   }
 
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-2">
+    <div
+      className={cn(
+        'rounded-lg border bg-card p-3 space-y-2 transition-colors',
+        excedido && 'border-destructive/50 bg-destructive/5'
+      )}
+    >
       <div className="flex items-start gap-2">
         <div
           className="h-10 w-10 rounded-md flex items-center justify-center flex-shrink-0"
@@ -291,7 +368,9 @@ function ItemCard({
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm leading-tight">{item.nombre}</p>
           {item.nombreVariante && (
-            <p className="text-xs text-muted-foreground">{item.nombreVariante}</p>
+            <p className="text-xs text-muted-foreground">
+              {item.nombreVariante}
+            </p>
           )}
           <p className="text-sm font-semibold text-primary mt-0.5">
             C$ {item.precioUnitario.toFixed(2)} c/u
@@ -304,6 +383,16 @@ function ItemCard({
           {item.descuento > 0 && (
             <Badge variant="destructive" className="mt-1 text-xs">
               -{item.descuento}% descuento
+            </Badge>
+          )}
+
+          {excedido && (
+            <Badge
+              variant="destructive"
+              className="mt-1.5 text-xs gap-1 w-fit"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Excede stock ({enCarrito}/{disponible ?? 0})
             </Badge>
           )}
         </div>
@@ -334,14 +423,21 @@ function ItemCard({
             onChange={(e) =>
               onCantidadChange(Math.max(1, parseInt(e.target.value) || 1))
             }
-            className="w-12 h-7 text-center p-0 text-sm"
+            className={cn(
+              'w-12 h-7 text-center p-0 text-sm',
+              excedido && 'border-destructive text-destructive'
+            )}
             min="1"
           />
           <Button
             variant="outline"
             size="icon"
             className="h-7 w-7"
-            onClick={() => onCantidadChange(item.cantidad + 1)}
+            onClick={intentarAumentar}
+            disabled={!puedeAumentar}
+            title={
+              !puedeAumentar ? `Stock máximo: ${disponible ?? 0}` : undefined
+            }
           >
             <Plus className="h-3 w-3" />
           </Button>
