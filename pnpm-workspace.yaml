@@ -1,8 +1,9 @@
-allowBuilds:
-  '@prisma/engines': true
-  core-js: set this to true or false
-  esbuild: true
-  prisma: true
-  sharp: false
-  unrs-resolver: false
-  workerd: true
+packages:
+  - '.'
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - prisma
+  - core-js
+  - sharp
+  - esbuild
