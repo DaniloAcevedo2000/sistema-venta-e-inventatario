@@ -2,8 +2,24 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requirePermiso } from '@/lib/helpers/permisos-server'
+import {
+  siguienteCorrelativo,
+  formatVenta,
+  formatFactura,
+  formatPedido,
+} from '@/lib/helpers/correlativos'
+import {
+  descontarStockDeItems,
+  devolverStockDeItems,
+} from '@/lib/helpers/inventario'
+import {
+  getTasaCambioActiva,
+  getSerieFactura,
+  getSesionCajaAbierta,
+  getCodigoSucursal, // 👈 Importamos el nuevo helper
+} from '@/lib/helpers/negocio'
 import { pedidoSchema } from './schema'
 
 type ActionState = {
@@ -11,13 +27,6 @@ type ActionState = {
   error?: string
   fieldErrors?: Record<string, string[]>
   pedidoId?: string
-}
-
-async function verificarPermiso(permiso: string) {
-  const session = await auth()
-  if (!session?.user) throw new Error('No autenticado')
-  if (!session.user.permisos.includes(permiso)) throw new Error('Sin permisos')
-  return session.user
 }
 
 // ============================================
@@ -30,7 +39,7 @@ export async function crearPedidoAction(
   let pedidoId: string | null = null
 
   try {
-    const user = await verificarPermiso('pedidos:crear')
+    const user = await requirePermiso('pedidos:crear')
 
     if (!user.sucursalId) {
       return { error: 'Usuario sin sucursal asignada' }
@@ -51,7 +60,9 @@ export async function crearPedidoAction(
     // Validaciones específicas
     if (data.tipo === 'DELIVERY') {
       if (!data.clienteDireccion?.trim()) {
-        return { fieldErrors: { clienteDireccion: ['Requerido para delivery'] } }
+        return {
+          fieldErrors: { clienteDireccion: ['Requerido para delivery'] },
+        }
       }
       if (!data.zonaEntregaId) {
         return { fieldErrors: { zonaEntregaId: ['Selecciona una zona'] } }
@@ -100,15 +111,16 @@ export async function crearPedidoAction(
 
     const total = subtotal - descuentoTotal + costoEnvio
 
-    // Generar número correlativo por sucursal
-    const año = new Date().getFullYear()
-    const ultimoPedido = await prisma.pedido.findFirst({
-      where: { sucursalId: user.sucursalId },
-      orderBy: { numeroSucursal: 'desc' },
-      select: { numeroSucursal: true },
-    })
-    const numeroPedidoSucursal = (ultimoPedido?.numeroSucursal ?? 0) + 1
-    const numeroPedidoCompleto = `P-${año}-${String(numeroPedidoSucursal).padStart(6, '0')}`
+    // 👇 Obtenemos el código de la sucursal
+    const sucursalCodigo = await getCodigoSucursal(user.sucursalId)
+
+    // Correlativo atómico por sucursal
+    const numeroPedidoSucursal = await siguienteCorrelativo(
+      'PEDIDO',
+      user.sucursalId
+    )
+    // 👇 Usamos el código en el formato
+    const numeroPedidoCompleto = formatPedido(numeroPedidoSucursal, sucursalCodigo)
 
     // Crear pedido
     const pedido = await prisma.pedido.create({
@@ -139,8 +151,6 @@ export async function crearPedidoAction(
         estadoPago: 'PENDIENTE',
         notas: data.notas || null,
         notasInternas: data.notasInternas || null,
-
-        // Coordenadas (opcionales)
         latitud: data.latitud ?? null,
         longitud: data.longitud ?? null,
 
@@ -184,29 +194,39 @@ export async function crearPedidoAction(
     revalidatePath('/pedidos')
   } catch (error) {
     console.error(error)
-    return { error: 'Error al crear pedido' }
+    return {
+      error:
+        error instanceof Error ? error.message : 'Error al crear pedido',
+    }
   }
 
-  // ⚠️ Redirigir FUERA del try/catch al detalle del pedido
-  // Pasamos el ID como query param para que el listado abra el dialog automáticamente
   redirect(`/pedidos?pedidoId=${pedidoId}`)
 }
 
 // ============================================
 // CAMBIAR ESTADO DEL PEDIDO
 // ============================================
+/**
+ * Transiciones y efectos sobre stock:
+ * - PENDIENTE → CONFIRMADO: descuenta stock (una sola vez)
+ * - CONFIRMADO/EN_PREPARACION/LISTO/EN_CAMINO → CANCELADO: devuelve stock
+ * - PENDIENTE → CANCELADO: no toca stock (nunca se descontó)
+ * - LISTO → ENTREGADO / EN_CAMINO → ENTREGADO: no toca stock
+ */
 export async function cambiarEstadoPedidoAction(
   pedidoId: string,
   nuevoEstado: string,
   motivo?: string
 ) {
   try {
-    const user = await verificarPermiso('pedidos:editar')
+    const user = await requirePermiso('pedidos:editar')
 
     const pedido = await prisma.pedido.findUnique({
       where: { id: pedidoId },
+      include: { items: true },
     })
     if (!pedido) return { error: 'Pedido no encontrado' }
+    if (!user.sucursalId) return { error: 'Usuario sin sucursal' }
 
     // Validar transición
     const transicionesValidas: Record<string, string[]> = {
@@ -227,8 +247,8 @@ export async function cambiarEstadoPedidoAction(
     }
 
     // Datos según el nuevo estado
-    const updateData: any = { estado: nuevoEstado }
     const now = new Date()
+    const updateData: any = { estado: nuevoEstado }
 
     switch (nuevoEstado) {
       case 'CONFIRMADO':
@@ -255,28 +275,87 @@ export async function cambiarEstadoPedidoAction(
         break
     }
 
-    await prisma.$transaction([
-      prisma.pedido.update({
+    // Reglas de stock
+    const debeDescontar =
+      pedido.estado === 'PENDIENTE' && nuevoEstado === 'CONFIRMADO'
+
+    const debeDevolver =
+      nuevoEstado === 'CANCELADO' &&
+      ['CONFIRMADO', 'EN_PREPARACION', 'LISTO', 'EN_CAMINO'].includes(
+        pedido.estado
+      )
+
+    const itemsStock = pedido.items.map((i) => ({
+      productoId: i.productoId,
+      varianteId: i.varianteId,
+      cantidad: Number(i.cantidad),
+      nombreProducto: i.nombreProducto,
+    }))
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Actualizar pedido
+      await tx.pedido.update({
         where: { id: pedidoId },
         data: updateData,
-      }),
-      prisma.auditoria.create({
+      })
+
+      // 2. Descontar stock al confirmar
+      if (debeDescontar) {
+        await descontarStockDeItems({
+          tx,
+          items: itemsStock,
+          sucursalId: user.sucursalId!,
+          usuarioId: user.id,
+          referenciaTipo: 'pedido',
+          referenciaId: pedidoId,
+          motivo: `Pedido ${pedido.numero} confirmado`,
+        })
+      }
+
+      // 3. Devolver stock al cancelar (si ya estaba confirmado)
+      if (debeDevolver) {
+        await devolverStockDeItems({
+          tx,
+          items: itemsStock,
+          sucursalId: user.sucursalId!,
+          usuarioId: user.id,
+          referenciaTipo: 'pedido_cancelado',
+          referenciaId: pedidoId,
+          motivo: `Cancelación pedido ${pedido.numero}: ${motivo}`,
+        })
+      }
+
+      // 4. Auditoría
+      await tx.auditoria.create({
         data: {
           usuario: { connect: { id: user.id } },
           accion: `pedido.${nuevoEstado.toLowerCase()}`,
           entidadTipo: 'Pedido',
           entidadId: pedidoId,
           datosAntes: { estado: pedido.estado } as any,
-          datosDespues: { estado: nuevoEstado, motivo } as any,
+          datosDespues: {
+            estado: nuevoEstado,
+            motivo,
+            afectoStock: debeDescontar || debeDevolver,
+            tipoAfectacion: debeDescontar
+              ? 'descuento'
+              : debeDevolver
+                ? 'devolucion'
+                : null,
+          } as any,
         },
-      }),
-    ])
+      })
+    })
 
     revalidatePath('/pedidos')
+    revalidatePath('/inventario')
     return { success: true }
   } catch (error) {
     console.error(error)
-    return { error: 'Error al cambiar estado' }
+    return {
+      error:
+        error instanceof Error ? error.message : 'Error al cambiar estado',
+    }
   }
 }
 
@@ -288,7 +367,7 @@ export async function asignarRepartidorAction(
   repartidorId: string
 ) {
   try {
-    const user = await verificarPermiso('pedidos:asignar_repartidor')
+    const user = await requirePermiso('pedidos:asignar_repartidor')
 
     const repartidor = await prisma.usuario.findUnique({
       where: { id: repartidorId },
@@ -323,16 +402,27 @@ export async function asignarRepartidorAction(
     ])
 
     revalidatePath('/pedidos')
+    revalidatePath('/mis-entregas')
     return { success: true }
   } catch (error) {
     console.error(error)
-    return { error: 'Error al asignar repartidor' }
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Error al asignar repartidor',
+    }
   }
 }
 
 // ============================================
 // COBRAR PEDIDO (Convertir a Venta + Factura)
 // ============================================
+/**
+ * IMPORTANTE: al cobrar NO se descuenta stock, porque ya se descontó
+ * cuando el pedido pasó a CONFIRMADO. Solo se crea la Venta + Factura
+ * + Pago + movimiento de caja + actualización de cliente (si crédito).
+ */
 export async function cobrarPedidoAction(
   pedidoId: string,
   metodoPagoId: string,
@@ -345,7 +435,7 @@ export async function cobrarPedidoAction(
   }
 ) {
   try {
-    const user = await verificarPermiso('pedidos:cobrar')
+    const user = await requirePermiso('pedidos:cobrar')
 
     if (!user.sucursalId) {
       return { error: 'Usuario sin sucursal asignada' }
@@ -356,22 +446,16 @@ export async function cobrarPedidoAction(
     // ============================================
     const pedido = await prisma.pedido.findUnique({
       where: { id: pedidoId },
-      include: {
-        items: true,
-        cliente: true,
-      },
+      include: { items: true, cliente: true },
     })
 
     if (!pedido) return { error: 'Pedido no encontrado' }
-
-    if (pedido.facturadoEn) {
-      return { error: 'Este pedido ya fue facturado' }
+    if (pedido.facturadoEn) return { error: 'Este pedido ya fue facturado' }
+    if (pedido.estado === 'CANCELADO') {
+      return { error: 'No se puede cobrar un pedido cancelado' }
     }
-
     if (!['LISTO', 'ENTREGADO'].includes(pedido.estado)) {
-      return {
-        error: 'El pedido debe estar LISTO o ENTREGADO para cobrarse',
-      }
+      return { error: 'El pedido debe estar LISTO o ENTREGADO para cobrarse' }
     }
 
     // ============================================
@@ -385,11 +469,9 @@ export async function cobrarPedidoAction(
     if (!metodoPago || !metodoPago.activo) {
       return { error: 'Método de pago no válido' }
     }
-
     if (metodoPago.requiereBanco && !opciones?.bancoId) {
       return { error: 'Debes seleccionar un banco' }
     }
-
     if (metodoPago.requiereRed && !opciones?.redTarjetaId) {
       return { error: 'Debes seleccionar la red de tarjeta' }
     }
@@ -397,13 +479,7 @@ export async function cobrarPedidoAction(
     // ============================================
     // 3. VALIDAR SESIÓN DE CAJA
     // ============================================
-    const sesionCaja = await prisma.sesionCaja.findFirst({
-      where: {
-        usuarioAperturaId: user.id,
-        estado: 'ABIERTA',
-      },
-    })
-
+    const sesionCaja = await getSesionCajaAbierta(user.id)
     if (!sesionCaja) {
       return {
         error:
@@ -418,7 +494,8 @@ export async function cobrarPedidoAction(
     if (metodoPago.esCredito) {
       if (!cliente) {
         return {
-          error: 'El pedido no tiene cliente asociado. No se puede cobrar a crédito.',
+          error:
+            'El pedido no tiene cliente asociado. No se puede cobrar a crédito.',
         }
       }
       if (!cliente.permiteCredito) {
@@ -438,48 +515,42 @@ export async function cobrarPedidoAction(
     }
 
     // ============================================
-    // 5. GENERAR NÚMEROS CORRELATIVOS
+    // 5. TASA DE CAMBIO, SERIE Y CÓDIGO SUCURSAL
     // ============================================
-    const año = new Date().getFullYear()
-
-    const ultimaVenta = await prisma.venta.findFirst({
-      where: { sucursalId: user.sucursalId },
-      orderBy: { numeroSucursal: 'desc' },
-      select: { numeroSucursal: true },
-    })
-    const numeroVentaSucursal = (ultimaVenta?.numeroSucursal ?? 0) + 1
-    const numeroVentaCompleto = `V-${año}-${String(numeroVentaSucursal).padStart(6, '0')}`
-
-    const ultimaFactura = await prisma.factura.findFirst({
-      where: { sucursalId: user.sucursalId },
-      orderBy: { numeroSucursal: 'desc' },
-      select: { numeroSucursal: true },
-    })
-    const numeroFacturaSucursal = (ultimaFactura?.numeroSucursal ?? 0) + 1
-
-    const configSerie = await prisma.configuracion.findUnique({
-      where: { clave: 'factura.serie' },
-    })
-    const serie = configSerie?.valor ?? 'A'
-    const numeroFacturaCompleto = `${serie}-${String(numeroFacturaSucursal).padStart(6, '0')}`
+    const tasaCambio = await getTasaCambioActiva()
+    const serie = await getSerieFactura()
+    const sucursalCodigo = await getCodigoSucursal(user.sucursalId) // 👈 Obtenemos el código
 
     // ============================================
     // 6. TRANSACCIÓN
     // ============================================
     const resultado = await prisma.$transaction(async (tx) => {
-      // 6.1 Crear Venta
+      // 6.1 Correlativos atómicos
+      const numVenta = await siguienteCorrelativo('VENTA', user.sucursalId!, tx)
+      const numFactura = await siguienteCorrelativo(
+        'FACTURA',
+        user.sucursalId!,
+        tx
+      )
+
+      // 👈 Usamos el código en el formato
+      const numeroVentaCompleto = formatVenta(numVenta, sucursalCodigo)
+      const numeroFacturaCompleto = formatFactura(serie, numFactura, sucursalCodigo)
+
+      // 6.2 Crear Venta
       const venta = await tx.venta.create({
         data: {
           numero: numeroVentaCompleto,
-          numeroSucursal: numeroVentaSucursal,
+          numeroSucursal: numVenta,
           tipo: metodoPago.esCredito ? 'CREDITO' : 'CONTADO',
           estado: 'COMPLETADA',
           subtotal: pedido.subtotal,
           descuento: pedido.descuento,
           impuesto: pedido.impuesto,
           total: pedido.total,
-          tasaCambio: 36.6243, // TODO: leer de config
-          totalEfectivoNio: metodoPago.codigo === 'EFECTIVO_NIO' ? pedido.total : 0,
+          tasaCambio,
+          totalEfectivoNio:
+            metodoPago.codigo === 'EFECTIVO_NIO' ? pedido.total : 0,
           totalEfectivoUsd:
             metodoPago.codigo === 'EFECTIVO_USD'
               ? opciones?.montoRecibido ?? 0
@@ -496,7 +567,7 @@ export async function cobrarPedidoAction(
         },
       })
 
-      // 6.2 Crear Items de Venta + descontar inventario
+      // 6.3 Crear Items de Venta (SIN tocar stock)
       for (const item of pedido.items) {
         await tx.itemVenta.create({
           data: {
@@ -517,71 +588,21 @@ export async function cobrarPedidoAction(
             notas: item.notas,
           },
         })
-
-        // Descontar inventario según receta
-        const receta = await tx.receta.findUnique({
-          where: { productoId: item.productoId },
-          include: { items: true },
-        })
-
-        if (receta && receta.activa) {
-          for (const recetaItem of receta.items) {
-            const cantidadConsumir =
-              Number(recetaItem.cantidad) *
-              Number(item.cantidad) *
-              (1 + Number(recetaItem.mermaPorcentaje) / 100)
-
-            const stock = await tx.stock.findFirst({
-              where: {
-                insumoId: recetaItem.insumoId,
-                sucursalId: user.sucursalId!,
-              },
-            })
-
-            const cantidadAnterior = stock ? Number(stock.cantidad) : 0
-            const cantidadNueva = Math.max(0, cantidadAnterior - cantidadConsumir)
-
-            if (stock) {
-              await tx.stock.update({
-                where: { id: stock.id },
-                data: { cantidad: cantidadNueva },
-              })
-            } else {
-              await tx.stock.create({
-                data: {
-                  insumo: { connect: { id: recetaItem.insumoId } },
-                  sucursal: { connect: { id: user.sucursalId! } },
-                  cantidad: 0,
-                },
-              })
-            }
-
-            await tx.movimientoInventario.create({
-              data: {
-                insumo: { connect: { id: recetaItem.insumoId } },
-                sucursal: { connect: { id: user.sucursalId! } },
-                usuario: { connect: { id: user.id } },
-                tipo: 'SALIDA_VENTA',
-                cantidad: -cantidadConsumir,
-                cantidadAnterior,
-                cantidadNueva,
-                referenciaTipo: 'venta',
-                referenciaId: venta.id,
-                motivo: `Venta ${numeroVentaCompleto} (Pedido ${pedido.numero})`,
-              },
-            })
-          }
-        }
       }
 
-      // 6.3 Crear Pago
+      // 6.4 Crear Pago (con tasa si es USD)
       await tx.pagoVenta.create({
         data: {
           venta: { connect: { id: venta.id } },
           metodoPago: { connect: { id: metodoPago.id } },
           metodoCodigo: metodoPago.codigo,
           monto: opciones?.montoRecibido || pedido.total,
-          montoNio: pedido.total,
+          montoNio:
+            metodoPago.codigo === 'EFECTIVO_USD'
+              ? (opciones?.montoRecibido ?? 0) * tasaCambio
+              : pedido.total,
+          tasaCambio:
+            metodoPago.codigo === 'EFECTIVO_USD' ? tasaCambio : null,
           banco: opciones?.bancoId
             ? { connect: { id: opciones.bancoId } }
             : undefined,
@@ -592,7 +613,7 @@ export async function cobrarPedidoAction(
         },
       })
 
-      // 6.4 Actualizar saldo del cliente (si es crédito)
+      // 6.5 Actualizar saldo del cliente (si es crédito)
       if (metodoPago.esCredito && cliente) {
         const saldoActual = Number(cliente.saldoActual)
         const nuevoSaldo = saldoActual + Number(pedido.total)
@@ -600,6 +621,17 @@ export async function cobrarPedidoAction(
         await tx.cliente.update({
           where: { id: cliente.id },
           data: { saldoActual: nuevoSaldo },
+        })
+
+        await tx.pagoCredito.create({
+          data: {
+            cliente: { connect: { id: cliente.id } },
+            monto: pedido.total,
+            metodo: 'CREDITO',
+            notas: `Venta ${numeroVentaCompleto} (Pedido ${pedido.numero})`,
+            saldoAnterior: saldoActual,
+            saldoNuevo: nuevoSaldo,
+          },
         })
 
         await tx.auditoria.create({
@@ -618,7 +650,7 @@ export async function cobrarPedidoAction(
         })
       }
 
-      // 6.5 Crear Factura
+      // 6.6 Crear Factura
       const nombreCliente = cliente
         ? cliente.nombreComercial ||
           `${cliente.nombre} ${cliente.apellido ?? ''}`.trim()
@@ -627,17 +659,19 @@ export async function cobrarPedidoAction(
       const factura = await tx.factura.create({
         data: {
           serie,
-          numero: numeroFacturaSucursal,
-          numeroSucursal: numeroFacturaSucursal,
+          numero: numFactura,
+          numeroSucursal: numFactura,
           numeroCompleto: numeroFacturaCompleto,
           venta: { connect: { id: venta.id } },
           sucursal: { connect: { id: user.sucursalId! } },
           clienteNombre: nombreCliente,
           clienteRuc: cliente?.numeroDocumento || null,
-          clienteDireccion: cliente?.direccion || pedido.clienteDireccion || null,
+          clienteDireccion:
+            cliente?.direccion || pedido.clienteDireccion || null,
           tipoDocumento: 'FACTURA',
           subtotal: pedido.subtotal,
-          subtotalGravado: Number(pedido.subtotal) - Number(pedido.descuento),
+          subtotalGravado:
+            Number(pedido.subtotal) - Number(pedido.descuento),
           subtotalExento: 0,
           descuento: pedido.descuento,
           iva: pedido.impuesto,
@@ -646,7 +680,7 @@ export async function cobrarPedidoAction(
         },
       })
 
-      // 6.6 Actualizar Pedido (marcar como facturado)
+      // 6.7 Actualizar Pedido (marcar como facturado)
       await tx.pedido.update({
         where: { id: pedidoId },
         data: {
@@ -658,7 +692,7 @@ export async function cobrarPedidoAction(
         },
       })
 
-      // 6.7 Auditoría
+      // 6.8 Auditoría
       await tx.auditoria.create({
         data: {
           usuario: { connect: { id: user.id } },
@@ -677,6 +711,19 @@ export async function cobrarPedidoAction(
 
       return { venta, factura }
     })
+
+
+    // 7. Enviar factura por correo si el cliente tiene email
+    if (cliente?.correo) {
+      const { enviarFacturaPorEmail } = await import('@/lib/email/send-factura')
+      
+      // Lo disparamos sin "await" para no bloquear la respuesta al cajero
+      enviarFacturaPorEmail(resultado.factura.id, cliente.correo)
+        .then((res) => {
+          if (!res.success) console.error('Fallo al enviar correo:', res.error)
+        })
+        .catch((err) => console.error('Error inesperado en email:', err))
+    }
 
     revalidatePath('/pedidos')
     revalidatePath('/ventas')

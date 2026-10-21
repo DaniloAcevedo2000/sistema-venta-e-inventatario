@@ -2,6 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getCoordsNegocio } from '@/lib/helpers/negocio'
 
 export async function getPedidoDetalle(pedidoId: string) {
   const session = await auth()
@@ -14,29 +15,25 @@ export async function getPedidoDetalle(pedidoId: string) {
       zonaEntrega: { select: { nombre: true } },
       repartidor: { select: { id: true, nombre: true } },
       usuarioCreacion: { select: { nombre: true } },
+      usuarioFacturacion: { select: { nombre: true } },
+      venta: { select: { id: true, numero: true } },
       items: true,
     },
   })
 
   if (!pedido) throw new Error('Pedido no encontrado')
 
-  // ============================================
-  // COORDENADAS DEL NEGOCIO
-  // ============================================
-  const configNegocio = await prisma.configuracion.findMany({
-    where: {
-      clave: {
-        in: ['negocio.latitud', 'negocio.longitud'],
-      },
-    },
-  })
+  const { latitudNegocio, longitudNegocio } = await getCoordsNegocio()
 
-  const latitudNegocio = parseFloat(
-    configNegocio.find((c) => c.clave === 'negocio.latitud')?.valor ?? '0'
-  )
-  const longitudNegocio = parseFloat(
-    configNegocio.find((c) => c.clave === 'negocio.longitud')?.valor ?? '0'
-  )
+  // Factura ligada al pedido (si está facturado)
+  let facturaNumero: string | null = null
+  if (pedido.ventaId) {
+    const factura = await prisma.factura.findUnique({
+      where: { ventaId: pedido.ventaId },
+      select: { numeroCompleto: true },
+    })
+    facturaNumero = factura?.numeroCompleto ?? null
+  }
 
   return {
     id: pedido.id,
@@ -44,6 +41,7 @@ export async function getPedidoDetalle(pedidoId: string) {
     tipo: pedido.tipo,
     estado: pedido.estado,
     estadoPago: pedido.estadoPago,
+    clienteId: pedido.clienteId,
     clienteNombre: pedido.clienteNombre,
     clienteTelefono: pedido.clienteTelefono,
     clienteDireccion: pedido.clienteDireccion,
@@ -52,6 +50,7 @@ export async function getPedidoDetalle(pedidoId: string) {
     repartidorNombre: pedido.repartidor?.nombre ?? null,
     repartidorId: pedido.repartidorId,
     creadoPor: pedido.usuarioCreacion.nombre,
+    facturadoPor: pedido.usuarioFacturacion?.nombre ?? null,
     subtotal: Number(pedido.subtotal),
     descuento: Number(pedido.descuento),
     impuesto: Number(pedido.impuesto),
@@ -67,12 +66,15 @@ export async function getPedidoDetalle(pedidoId: string) {
     entregadoEn: pedido.entregadoEn?.toISOString() ?? null,
     canceladoEn: pedido.canceladoEn?.toISOString() ?? null,
     motivoCancelacion: pedido.motivoCancelacion,
+    facturadoEn: pedido.facturadoEn?.toISOString() ?? null,
+    ventaNumero: pedido.venta?.numero ?? null,
+    facturaNumero,
 
-    // Coordenadas de entrega y del negocio
+    // Coordenadas
     latitud: pedido.latitud ?? null,
     longitud: pedido.longitud ?? null,
-    latitudNegocio: latitudNegocio || null,
-    longitudNegocio: longitudNegocio || null,
+    latitudNegocio,
+    longitudNegocio,
 
     items: pedido.items.map((item) => ({
       id: item.id,
@@ -90,21 +92,16 @@ export async function getRepartidoresDisponibles() {
   const session = await auth()
   if (!session?.user) throw new Error('No autenticado')
 
-  const repartidores = await prisma.usuario.findMany({
+  return await prisma.usuario.findMany({
     where: {
       activo: true,
       roles: {
         some: { rol: { codigo: 'REPARTIDOR' } },
       },
     },
-    select: {
-      id: true,
-      nombre: true,
-    },
+    select: { id: true, nombre: true },
     orderBy: { nombre: 'asc' },
   })
-
-  return repartidores
 }
 
 export async function getDatosPago() {

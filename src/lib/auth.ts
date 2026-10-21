@@ -12,7 +12,6 @@ const credencialesSchema = z.object({
 })
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  // Cast temporal para compatibilidad entre Prisma 7 y @auth/prisma-adapter
   adapter: PrismaAdapter(prisma as any),
   session: {
     strategy: 'jwt',
@@ -93,23 +92,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const isOnLogin = nextUrl.pathname.startsWith('/login')
       const isOnApi = nextUrl.pathname.startsWith('/api')
 
-      // Permitir siempre las rutas de API
       if (isOnApi) return true
-
-      // Si está en /login
       if (isOnLogin) {
         if (isLoggedIn) {
-          // Ya logueado → redirigir al dashboard
           return Response.redirect(new URL('/dashboard', nextUrl))
         }
-        // No logueado → permitir acceso al login
         return true
       }
-
-      // Todas las demás rutas requieren login
       return isLoggedIn
     },
-    async jwt({ token, user }) {
+    
+    // Agregamos trigger y session a los parámetros
+    async jwt({ token, user, trigger, session }) {
+      // 1. Login inicial
       if (user) {
         token.id = user.id
         token.nombre = user.nombre
@@ -119,8 +114,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.roles = user.roles
         token.permisos = user.permisos
       }
+
+      // 2. Actualización desde el cliente (Cambio de sucursal)
+      if (trigger === 'update' && session?.sucursalId) {
+        token.sucursalId = session.sucursalId
+        
+        // Buscamos el nombre de la nueva sucursal para mantenerlo sincronizado
+        const sucursal = await prisma.sucursal.findUnique({
+          where: { id: session.sucursalId }
+        })
+        if (sucursal) {
+          token.sucursalNombre = sucursal.nombre
+        }
+      }
+
       return token
     },
+    
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string

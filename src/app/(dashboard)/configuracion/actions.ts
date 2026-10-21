@@ -532,3 +532,91 @@ export async function toggleRedTarjetaAction(redId: string) {
     return { error: 'Error al cambiar estado' }
   }
 }
+
+
+// ============================================
+// BRANDING (IDENTIDAD VISUAL)
+// ============================================
+export async function actualizarBrandingAction(
+  prevState: ActionState | undefined,
+  formData: FormData
+): Promise<ActionState> {
+  try {
+    const user = await verificarPermiso('configuracion:gestionar')
+
+    const nombreEmpresa = (formData.get('nombreEmpresa') as string)?.trim()
+    const primary = formData.get('primary') as string
+    const primaryForeground = formData.get('primaryForeground') as string
+    const accent = formData.get('accent') as string
+    const background = formData.get('background') as string
+
+    if (!nombreEmpresa) return { fieldErrors: { nombreEmpresa: ['Requerido'] } }
+
+    // Guardamos cada valor en la tabla Configuracion usando upsert
+    const configs = [
+      { clave: 'app.nombre', valor: nombreEmpresa, tipo: 'string' },
+      { clave: 'theme.primary', valor: primary, tipo: 'color' },
+      { clave: 'theme.primaryForeground', valor: primaryForeground, tipo: 'color' },
+      { clave: 'theme.accent', valor: accent, tipo: 'color' },
+      { clave: 'theme.background', valor: background, tipo: 'color' },
+    ]
+
+    for (const c of configs) {
+      await prisma.configuracion.upsert({
+        where: { clave: c.clave },
+        update: { valor: c.valor, tipo: c.tipo },
+        create: { clave: c.clave, valor: c.valor, tipo: c.tipo },
+      })
+    }
+
+    await prisma.auditoria.create({
+      data: {
+        usuario: { connect: { id: user.id } },
+        accion: 'configuracion.branding.actualizar',
+        entidadTipo: 'Configuracion',
+        datosDespues: { nombreEmpresa, primary, accent, background } as any,
+      },
+    })
+
+    // Revalidamos el layout para que los colores se apliquen en toda la app
+    revalidatePath('/', 'layout')
+    return { success: true }
+  } catch (error) {
+    console.error(error)
+    return { error: 'Error al guardar identidad visual' }
+  }
+}
+
+
+export async function guardarTemaAction(data: {
+  nombreEmpresa: string
+  primary: string
+  accent: string
+  background: string
+  primaryForeground: string
+}) {
+  try {
+    await verificarPermiso('configuracion:gestionar')
+
+    const configs = [
+      { clave: 'app.nombre', valor: data.nombreEmpresa },
+      { clave: 'theme.primary', valor: data.primary },
+      { clave: 'theme.accent', valor: data.accent },
+      { clave: 'theme.background', valor: data.background },
+      { clave: 'theme.primaryForeground', valor: data.primaryForeground },
+    ]
+
+    for (const c of configs) {
+      await prisma.configuracion.upsert({
+        where: { clave: c.clave },
+        update: { valor: c.valor },
+        create: { clave: c.clave, valor: c.valor, tipo: 'string' },
+      })
+    }
+
+    revalidatePath('/', 'layout') // Actualiza el layout y toda la app
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Error al guardar tema' }
+  }
+}

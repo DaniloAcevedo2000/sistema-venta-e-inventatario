@@ -21,9 +21,10 @@ import {
 } from '@/components/ui/sidebar'
 import { navGroups } from '@/config/nav'
 import { NavUser } from './nav-user'
-import { BranchSwitcher } from './branch-switcher'
+import { BranchSwitcher, SucursalItem } from './branch-switcher' // 👈 Importamos SucursalItem
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+// 👇 1. Agregamos la prop 'sucursales' a la firma del componente
+export function AppSidebar({ sucursales, ...props }: { sucursales: SucursalItem[] } & React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { data: session } = useSession()
 
@@ -55,7 +56,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <BranchSwitcher />
+        
+        {/* 👇 2. Le pasamos las sucursales al BranchSwitcher */}
+        <BranchSwitcher sucursales={sucursales} />
       </SidebarHeader>
 
       <SidebarContent>

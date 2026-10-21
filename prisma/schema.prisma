@@ -45,7 +45,7 @@ model Usuario {
 
   pedidosCreados    Pedido[] @relation("PedidoCreadoPor")
   pedidosRepartidos Pedido[] @relation("PedidoRepartidor")
-  pedidosFacturados   Pedido[] @relation("PedidoFacturadoPor") 
+  pedidosFacturados Pedido[] @relation("PedidoFacturadoPor")
 
   creadoEn      DateTime  @default(now()) @map("creado_en")
   actualizadoEn DateTime  @updatedAt @map("actualizado_en")
@@ -274,6 +274,7 @@ model Insumo {
 
   recetas     RecetaItem[]
   stocks      Stock[]
+  itemsCompra ItemCompra[]
   movimientos MovimientoInventario[]
 
   creadoEn      DateTime @default(now()) @map("creado_en")
@@ -394,6 +395,8 @@ model ProductoVariante {
 
   itemsPedido ItemPedido[]
 
+  recetas Receta[]
+
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
@@ -408,9 +411,10 @@ model Receta {
   productoId String   @unique @map("producto_id")
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
 
-  varianteId String? @map("variante_id")
+  varianteId String?           @map("variante_id")
+  variante   ProductoVariante? @relation(fields: [varianteId], references: [id])
   notas      String?
-  activa     Boolean @default(true)
+  activa     Boolean           @default(true)
 
   items RecetaItem[]
 
@@ -637,6 +641,9 @@ model ItemCompra {
 
   productoId String?   @map("producto_id")
   producto   Producto? @relation(fields: [productoId], references: [id])
+
+  insumoId String? @map("insumo_id")
+  insumo   Insumo? @relation(fields: [insumoId], references: [id])
 
   descripcion String // por si es un insumo no registrado aún
 
@@ -1268,8 +1275,8 @@ model Pedido {
   clienteTelefono  String  @map("cliente_telefono")
   clienteDireccion String? @map("cliente_direccion") // solo para delivery
 
-  latitud         Float?
-  longitud        Float?
+  latitud  Float?
+  longitud Float?
 
   // Zona de entrega (solo delivery)
   zonaEntregaId String?      @map("zona_entrega_id")
@@ -1286,10 +1293,10 @@ model Pedido {
   // Hora programada (opcional)
   fechaProgramada DateTime? @map("fecha_programada")
 
-    // Facturación
-  facturadoEn           DateTime? @map("facturado_en")
-  usuarioFacturacionId  String?   @map("usuario_facturacion_id")
-  usuarioFacturacion    Usuario?  @relation("PedidoFacturadoPor", fields: [usuarioFacturacionId], references: [id])
+  // Facturación
+  facturadoEn          DateTime? @map("facturado_en")
+  usuarioFacturacionId String?   @map("usuario_facturacion_id")
+  usuarioFacturacion   Usuario?  @relation("PedidoFacturadoPor", fields: [usuarioFacturacionId], references: [id])
 
   // Totales
   subtotal   Decimal @default(0) @db.Decimal(12, 2)

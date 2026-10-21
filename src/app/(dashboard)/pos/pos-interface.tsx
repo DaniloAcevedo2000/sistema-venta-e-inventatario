@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import * as Icons from 'lucide-react'
-import { Search, X, Wallet } from 'lucide-react'
+import { Search, X, Wallet, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,6 +51,8 @@ type Producto = {
   categoriaId: string
   categoriaNombre: string
   variantes: Variante[]
+  stockDisponible: number
+  tieneReceta: boolean
 }
 
 type Usuario = {
@@ -118,6 +121,7 @@ type Props = {
   bancos: BancoConfig[]
   redesTarjeta: RedTarjetaConfig[]
   clientes: ClienteConfig[]
+  stockPorProductoId: Record<string, number>
   sesionCajaAbierta: SesionCajaInfo | null
 }
 
@@ -130,17 +134,17 @@ export function PosInterface({
   bancos,
   redesTarjeta,
   clientes,
+  stockPorProductoId,
   sesionCajaAbierta,
 }: Props) {
   const [categoriaActiva, setCategoriaActiva] = React.useState<string | null>(null)
   const [busqueda, setBusqueda] = React.useState('')
-  const [varianteProducto, setVarianteProducto] = React.useState<Producto | null>(null)
+  const [varianteProducto, setVarianteProducto] =
+    React.useState<Producto | null>(null)
+  const [soloDisponibles, setSoloDisponibles] = React.useState(false)
 
   const agregarItem = usePosStore((s) => s.agregarItem)
 
-  // ============================================
-  // BLOQUEAR SI NO HAY CAJA ABIERTA
-  // ============================================
   if (!sesionCajaAbierta) {
     return (
       <div className="flex-1 flex items-center justify-center bg-muted/30 p-6">
@@ -171,9 +175,6 @@ export function PosInterface({
     )
   }
 
-  // ============================================
-  // Filtrado
-  // ============================================
   const categoriasPrincipales = categorias.filter((c) => !c.padreId)
   const subcategorias = categoriaActiva
     ? categorias.filter((c) => c.padreId === categoriaActiva)
@@ -196,13 +197,19 @@ export function PosInterface({
       filtrados = filtrados.filter((p) => idsCategoria.includes(p.categoriaId))
     }
 
-    return filtrados
-  }, [productos, categoriaActiva, categorias, busqueda])
+    if (soloDisponibles) {
+      filtrados = filtrados.filter((p) => p.stockDisponible > 0)
+    }
 
-  // ============================================
-  // Click en producto
-  // ============================================
+    return filtrados
+  }, [productos, categoriaActiva, categorias, busqueda, soloDisponibles])
+
   const handleClickProducto = (producto: Producto) => {
+    if (producto.stockDisponible <= 0) {
+      toast.error(`${producto.nombre} está agotado`)
+      return
+    }
+
     if (producto.tipo === 'variantes' && producto.variantes.length > 0) {
       setVarianteProducto(producto)
     } else {
@@ -223,12 +230,12 @@ export function PosInterface({
     }
   }
 
+  const agotadosCount = productos.filter((p) => p.stockDisponible <= 0).length
+
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* Columna izquierda */}
       <div className="flex-1 flex flex-col overflow-hidden border-r">
-        {/* Barra de búsqueda */}
-        <div className="p-4 border-b bg-background">
+        <div className="p-4 border-b bg-background space-y-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -248,9 +255,28 @@ export function PosInterface({
               </Button>
             )}
           </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              variant={soloDisponibles ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSoloDisponibles((v) => !v)}
+              className="h-8 text-xs"
+            >
+              {soloDisponibles ? 'Mostrando solo disponibles' : 'Solo disponibles'}
+            </Button>
+            {agotadosCount > 0 && (
+              <Badge
+                variant="outline"
+                className="text-xs gap-1 text-muted-foreground"
+              >
+                <AlertCircle className="h-3 w-3" />
+                {agotadosCount} agotado{agotadosCount !== 1 ? 's' : ''}
+              </Badge>
+            )}
+          </div>
         </div>
 
-        {/* Grid de categorías */}
         {!busqueda && (
           <div className="p-4 border-b bg-background">
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -264,7 +290,9 @@ export function PosInterface({
               </Button>
               {categoriasPrincipales.map((cat) => {
                 const Icon = cat.icono
-                  ? (Icons[cat.icono as keyof typeof Icons] as React.ComponentType<{ className?: string }>)
+                  ? (Icons[
+                      cat.icono as keyof typeof Icons
+                    ] as React.ComponentType<{ className?: string }>)
                   : null
                 const isActive = categoriaActiva === cat.id
 
@@ -304,7 +332,6 @@ export function PosInterface({
           </div>
         )}
 
-        {/* Grid de productos */}
         <div className="flex-1 overflow-y-auto p-4">
           {productosFiltrados.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -313,7 +340,9 @@ export function PosInterface({
                 <p className="text-sm">
                   {busqueda
                     ? 'No se encontraron productos con esa búsqueda'
-                    : 'Selecciona otra categoría'}
+                    : soloDisponibles
+                      ? 'No hay productos con stock disponible'
+                      : 'Selecciona otra categoría'}
                 </p>
               </div>
             </div>
@@ -331,7 +360,6 @@ export function PosInterface({
         </div>
       </div>
 
-      {/* Columna derecha */}
       <div className="w-[380px] flex flex-col bg-background">
         <OrdenPanel
           usuario={usuario}
@@ -340,6 +368,7 @@ export function PosInterface({
           bancos={bancos}
           redesTarjeta={redesTarjeta}
           clientes={clientes}
+          stockPorProductoId={stockPorProductoId}
           sesionCajaAbierta={sesionCajaAbierta}
         />
       </div>
@@ -364,22 +393,29 @@ function ProductoCard({
   onClick: () => void
 }) {
   const precio = parseFloat(producto.precioBase)
-  const tieneVariantes = producto.tipo === 'variantes' && producto.variantes.length > 0
+  const tieneVariantes =
+    producto.tipo === 'variantes' && producto.variantes.length > 0
+  const agotado = producto.stockDisponible <= 0
+  const stockBajo = !agotado && producto.stockDisponible <= 5
 
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={agotado}
       className={cn(
         'group relative flex flex-col items-start gap-2 rounded-xl border-2 bg-card p-3 text-left transition-all',
-        'hover:border-primary hover:shadow-md active:scale-95',
-        'focus:outline-none focus:ring-2 focus:ring-primary'
+        !agotado && 'hover:border-primary hover:shadow-md active:scale-95',
+        !agotado && 'focus:outline-none focus:ring-2 focus:ring-primary',
+        agotado && 'opacity-60 cursor-not-allowed border-muted'
       )}
     >
       <div
-        className="h-20 w-full rounded-lg flex items-center justify-center overflow-hidden"
+        className="h-20 w-full rounded-lg flex items-center justify-center overflow-hidden relative"
         style={{
-          backgroundColor: producto.imagenUrl ? undefined : producto.color || '#6B4226',
+          backgroundColor: producto.imagenUrl
+            ? undefined
+            : producto.color || '#6B4226',
         }}
       >
         {producto.imagenUrl ? (
@@ -393,23 +429,48 @@ function ProductoCard({
             {producto.nombre.charAt(0)}
           </span>
         )}
+
+        {agotado && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <Badge variant="destructive" className="text-xs font-bold">
+              AGOTADO
+            </Badge>
+          </div>
+        )}
       </div>
 
       <div className="w-full">
         <p className="font-medium text-sm line-clamp-2 leading-tight">
           {producto.nombre}
         </p>
-        <div className="flex items-center justify-between mt-1">
+        <div className="flex items-center justify-between mt-1 gap-1">
           <span className="font-bold text-primary">C$ {precio.toFixed(2)}</span>
           {tieneVariantes && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-xs shrink-0">
               {producto.variantes.length} var.
             </Badge>
           )}
         </div>
+
+        {!agotado && (
+          <div className="mt-1.5">
+            {stockBajo ? (
+              <Badge
+                variant="outline"
+                className="text-xs border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
+              >
+                Últimas {producto.stockDisponible}
+              </Badge>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {producto.stockDisponible} disp.
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      {producto.destacado && (
+      {producto.destacado && !agotado && (
         <div className="absolute top-1 right-1">
           <Icons.Star className="h-3.5 w-3.5 fill-yellow-500 text-yellow-500" />
         </div>

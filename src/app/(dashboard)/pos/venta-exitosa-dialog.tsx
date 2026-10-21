@@ -26,6 +26,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { generarBoucherPDF, generarFacturaA4PDF } from '@/lib/pdf/actions'
+import { EnviarFacturaDialog } from '@/components/enviar-factura-dialog'
 
 type VentaCreada = {
   id: string
@@ -306,15 +307,10 @@ export function VentaExitosaDialog({ open, onOpenChange, venta }: Props) {
                     Factura A4
                   </Button>
 
-                  <Button
-                    variant="outline"
-                    onClick={() => toast.info('Envío por correo en desarrollo')}
-                    disabled={cargando}
-                    className="w-full justify-start"
-                  >
-                    <Mail className="mr-2 h-4 w-4" />
-                    Enviar por correo
-                  </Button>
+                  {/* 👇 AQUI REEMPLAZAMOS EL BOTÓN DE PLACEHOLDER POR EL REAL */}
+                  {venta.facturaId && (
+                    <EnviarFacturaDialog facturaId={venta.facturaId} />
+                  )}
                 </div>
               </div>
 

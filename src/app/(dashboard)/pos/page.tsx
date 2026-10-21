@@ -18,6 +18,12 @@ export default async function PosPage() {
   if (!session?.user) redirect('/login')
   if (!session.user.permisos.includes('ventas:crear')) redirect('/dashboard')
 
+  if (!session.user.sucursalId) {
+    return <div>Usuario sin sucursal asignada</div>
+  }
+
+  const sucursalId = session.user.sucursalId
+
   const [
     categorias,
     productos,
@@ -26,7 +32,8 @@ export default async function PosPage() {
     bancos,
     redesTarjeta,
     sesionCajaAbierta,
-    clientes,  // ← NUEVO
+    clientes,
+    stocks,
   ] = await Promise.all([
     prisma.categoria.findMany({
       where: { activo: true },
@@ -39,6 +46,18 @@ export default async function PosPage() {
         variantes: {
           where: { activo: true },
           orderBy: { orden: 'asc' },
+        },
+        // 👇 Receta con sus insumos para calcular stock efectivo
+        receta: {
+          include: {
+            items: {
+              select: {
+                insumoId: true,
+                cantidad: true,
+                mermaPorcentaje: true,
+              },
+            },
+          },
         },
       },
       orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
@@ -56,12 +75,8 @@ export default async function PosPage() {
         caja: { select: { id: true, codigo: true, nombre: true } },
       },
     }),
-    // ← NUEVO: Clientes con crédito habilitado
     prisma.cliente.findMany({
-      where: {
-        activo: true,
-        permiteCredito: true,
-      },
+      where: { activo: true, permiteCredito: true },
       select: {
         id: true,
         codigo: true,
@@ -77,7 +92,56 @@ export default async function PosPage() {
       orderBy: { nombre: 'asc' },
       take: 500,
     }),
+    // 👇 Stock de la sucursal (productos + insumos)
+    prisma.stock.findMany({
+      where: { sucursalId },
+      select: {
+        productoId: true,
+        insumoId: true,
+        cantidad: true,
+      },
+    }),
   ])
+
+  // ============================================
+  // MAPA DE STOCK
+  // ============================================
+  const stockPorProducto = new Map<string, number>()
+  const stockPorInsumo = new Map<string, number>()
+  for (const s of stocks) {
+    const cant = Number(s.cantidad)
+    if (s.productoId) stockPorProducto.set(s.productoId, cant)
+    if (s.insumoId) stockPorInsumo.set(s.insumoId, cant)
+  }
+
+  // ============================================
+  // STOCK EFECTIVO POR PRODUCTO
+  // ============================================
+  /**
+   * - Producto con receta → mínimo de (stock_insumo / cantidad_por_unidad)
+   * - Producto sin receta → stock directo del producto
+   * - Sin fila en stocks → 0 (agotado)
+   */
+  function calcularStockEfectivo(p: (typeof productos)[number]): number {
+    const receta = p.receta
+    if (receta && receta.activa && receta.items.length > 0) {
+      let minUnidades = Infinity
+      for (const item of receta.items) {
+        const stockInsumo = stockPorInsumo.get(item.insumoId) ?? 0
+        const cantidadPorUnidad =
+          Number(item.cantidad) * (1 + Number(item.mermaPorcentaje) / 100)
+
+        if (cantidadPorUnidad <= 0) continue
+
+        const unidadesPosibles = stockInsumo / cantidadPorUnidad
+        if (unidadesPosibles < minUnidades) minUnidades = unidadesPosibles
+      }
+      return minUnidades === Infinity ? 0 : Math.floor(minUnidades)
+    }
+
+    const stock = stockPorProducto.get(p.id) ?? 0
+    return Math.floor(stock)
+  }
 
   const productosSerializados = productos.map((p) => ({
     id: p.id,
@@ -99,7 +163,15 @@ export default async function PosPage() {
       precio: v.precio.toString(),
       orden: v.orden,
     })),
+    stockDisponible: calcularStockEfectivo(p),
+    tieneReceta: !!p.receta && p.receta.activa,
   }))
+
+  // 👇 Mapa productoId → stockDisponible para el carrito
+  const stockPorProductoId: Record<string, number> = {}
+  for (const p of productosSerializados) {
+    stockPorProductoId[p.id] = p.stockDisponible
+  }
 
   const usuario = {
     id: session.user.id,
@@ -167,6 +239,7 @@ export default async function PosPage() {
         bancos={bancosSerializados}
         redesTarjeta={redesSerializadas}
         clientes={clientesSerializados}
+        stockPorProductoId={stockPorProductoId}
         sesionCajaAbierta={
           sesionCajaAbierta
             ? {

@@ -1,21 +1,15 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-
-async function verificarPermiso(permiso: string) {
-  const session = await auth()
-  if (!session?.user) throw new Error('No autenticado')
-  if (!session.user.permisos.includes(permiso)) throw new Error('Sin permisos')
-  return session.user
-}
+import { requirePermiso } from '@/lib/helpers/permisos-server'
+import { getCoordsNegocio } from '@/lib/helpers/negocio'
 
 // ============================================
 // OBTENER MIS ENTREGAS
 // ============================================
 export async function getMisEntregas() {
-  const user = await verificarPermiso('delivery:ver')
+  const user = await requirePermiso('delivery:ver')
 
   const pedidos = await prisma.pedido.findMany({
     where: {
@@ -31,19 +25,7 @@ export async function getMisEntregas() {
     take: 100,
   })
 
-  // Coordenadas del negocio
-  const config = await prisma.configuracion.findMany({
-    where: {
-      clave: { in: ['negocio.latitud', 'negocio.longitud'] },
-    },
-  })
-
-  const latitudNegocio = parseFloat(
-    config.find((c) => c.clave === 'negocio.latitud')?.valor ?? '0'
-  )
-  const longitudNegocio = parseFloat(
-    config.find((c) => c.clave === 'negocio.longitud')?.valor ?? '0'
-  )
+  const { latitudNegocio, longitudNegocio } = await getCoordsNegocio()
 
   return pedidos.map((p) => ({
     id: p.id,
@@ -72,9 +54,8 @@ export async function getMisEntregas() {
 // ============================================
 // OBTENER DETALLE DE UNA ENTREGA
 // ============================================
-
 export async function getEntregaDetalle(pedidoId: string) {
-  const user = await verificarPermiso('delivery:ver')
+  const user = await requirePermiso('delivery:ver')
 
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -87,30 +68,17 @@ export async function getEntregaDetalle(pedidoId: string) {
 
   if (!pedido) throw new Error('Pedido no encontrado')
 
-  // Verificar que sea del repartidor actual
   if (pedido.repartidorId !== user.id) {
     throw new Error('No tienes acceso a este pedido')
   }
 
-  // Coordenadas del negocio (igual que en getMisEntregas)
-  const config = await prisma.configuracion.findMany({
-    where: {
-      clave: { in: ['negocio.latitud', 'negocio.longitud'] },
-    },
-  })
-
-  const latitudNegocio = parseFloat(
-    config.find((c) => c.clave === 'negocio.latitud')?.valor ?? '0'
-  )
-  const longitudNegocio = parseFloat(
-    config.find((c) => c.clave === 'negocio.longitud')?.valor ?? '0'
-  )
+  const { latitudNegocio, longitudNegocio } = await getCoordsNegocio()
 
   return {
     id: pedido.id,
     numero: pedido.numero,
     estado: pedido.estado,
-    tipo: pedido.tipo, 
+    tipo: pedido.tipo,
     clienteNombre: pedido.clienteNombre,
     clienteTelefono: pedido.clienteTelefono,
     clienteDireccion: pedido.clienteDireccion,
@@ -126,8 +94,8 @@ export async function getEntregaDetalle(pedidoId: string) {
     notasInternas: pedido.notasInternas,
     latitud: pedido.latitud,
     longitud: pedido.longitud,
-    latitudNegocio,   
-    longitudNegocio, 
+    latitudNegocio,
+    longitudNegocio,
     creadoEn: pedido.creadoEn.toISOString(),
     enCaminoEn: pedido.enCaminoEn?.toISOString() ?? null,
     entregadoEn: pedido.entregadoEn?.toISOString() ?? null,
@@ -148,18 +116,16 @@ export async function getEntregaDetalle(pedidoId: string) {
 // ============================================
 export async function marcarEntregadoAction(pedidoId: string) {
   try {
-    const user = await verificarPermiso('delivery:actualizar')
+    const user = await requirePermiso('delivery:actualizar')
 
     const pedido = await prisma.pedido.findUnique({
       where: { id: pedidoId },
     })
 
     if (!pedido) return { error: 'Pedido no encontrado' }
-
     if (pedido.repartidorId !== user.id) {
       return { error: 'No tienes acceso a este pedido' }
     }
-
     if (pedido.estado !== 'EN_CAMINO') {
       return { error: 'El pedido no está en camino' }
     }
@@ -188,6 +154,11 @@ export async function marcarEntregadoAction(pedidoId: string) {
     return { success: true }
   } catch (error) {
     console.error(error)
-    return { error: 'Error al marcar como entregado' }
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Error al marcar como entregado',
+    }
   }
 }

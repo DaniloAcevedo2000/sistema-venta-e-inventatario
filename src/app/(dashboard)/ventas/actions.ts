@@ -1,8 +1,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requirePermiso } from '@/lib/helpers/permisos-server'
+import {
+  siguienteCorrelativo,
+  formatNotaCredito,
+} from '@/lib/helpers/correlativos'
+import { devolverStockDeItems } from '@/lib/helpers/inventario'
 
 type AnularVentaPayload = {
   ventaId: string
@@ -19,21 +24,11 @@ type ResultadoAnulacion = {
   notaCreditoNumero?: string
 }
 
-async function verificarPermiso(permiso: string) {
-  const session = await auth()
-  if (!session?.user) throw new Error('No autenticado')
-  if (!session.user.permisos.includes(permiso)) throw new Error('Sin permisos')
-  return session.user
-}
-
-// ============================================
-// ANULAR VENTA
-// ============================================
 export async function anularVentaAction(
   payload: AnularVentaPayload
 ): Promise<ResultadoAnulacion> {
   try {
-    const user = await verificarPermiso('ventas:anular')
+    const user = await requirePermiso('ventas:anular')
 
     // ============================================
     // 1. VALIDACIONES
@@ -50,11 +45,7 @@ export async function anularVentaAction(
       include: {
         items: true,
         factura: true,
-        pagos: {
-          include: {
-            metodoPago: true,
-          },
-        },
+        pagos: { include: { metodoPago: true } },
         sucursal: true,
       },
     })
@@ -67,7 +58,7 @@ export async function anularVentaAction(
       return { success: false, error: 'Esta venta ya está anulada' }
     }
 
-    // Verificar que sea del mismo día
+    // Solo mismo día salvo permiso especial
     const hoy = new Date()
     hoy.setHours(0, 0, 0, 0)
 
@@ -76,14 +67,11 @@ export async function anularVentaAction(
 
     const esDelMismoDia = fechaVenta.getTime() === hoy.getTime()
 
-    if (!esDelMismoDia) {
-      // Verificar permiso especial
-      if (!user.permisos.includes('ventas:anular_historico')) {
-        return {
-          success: false,
-          error:
-            'Solo se pueden anular ventas del mismo día. Para anular ventas anteriores necesitas autorización de SUPER_ADMIN.',
-        }
+    if (!esDelMismoDia && !user.permisos.includes('ventas:anular_historico')) {
+      return {
+        success: false,
+        error:
+          'Solo se pueden anular ventas del mismo día. Para anular ventas anteriores necesitas autorización de SUPER_ADMIN.',
       }
     }
 
@@ -118,133 +106,48 @@ export async function anularVentaAction(
         })
       }
 
-      // 2.3 Devolver al inventario (si aplica)
+      // 2.3 Devolver al inventario (helper unificado)
+      // Cubre: productos con receta (insumos) Y productos sin receta
+      // (stock directo del producto si variante.controlaStock = true)
       if (payload.devolverAlInventario) {
-        for (const item of venta.items) {
-          // Verificar si el producto tiene receta
-          const receta = await tx.receta.findUnique({
-            where: { productoId: item.productoId },
-            include: { items: true },
-          })
-
-          if (receta && receta.activa) {
-            // Devolver insumos al stock
-            for (const recetaItem of receta.items) {
-              const cantidadDevolver =
-                Number(recetaItem.cantidad) *
-                Number(item.cantidad) *
-                (1 + Number(recetaItem.mermaPorcentaje) / 100)
-
-              const stock = await tx.stock.findFirst({
-                where: {
-                  insumoId: recetaItem.insumoId,
-                  sucursalId: venta.sucursalId,
-                },
-              })
-
-              const cantidadAnterior = stock ? Number(stock.cantidad) : 0
-              const cantidadNueva = cantidadAnterior + cantidadDevolver
-
-              if (stock) {
-                await tx.stock.update({
-                  where: { id: stock.id },
-                  data: { cantidad: cantidadNueva },
-                })
-              } else {
-                await tx.stock.create({
-                  data: {
-                    insumo: { connect: { id: recetaItem.insumoId } },
-                    sucursal: { connect: { id: venta.sucursalId } },
-                    cantidad: cantidadDevolver,
-                  },
-                })
-              }
-
-              await tx.movimientoInventario.create({
-                data: {
-                  insumo: { connect: { id: recetaItem.insumoId } },
-                  sucursal: { connect: { id: venta.sucursalId } },
-                  usuario: { connect: { id: user.id } },
-                  tipo: 'ENTRADA_ANULACION',
-                  cantidad: cantidadDevolver,
-                  cantidadAnterior,
-                  cantidadNueva,
-                  referenciaTipo: 'venta_anulada',
-                  referenciaId: venta.id,
-                  motivo: `Anulación venta ${venta.numero}: ${payload.motivo}`,
-                },
-              })
-            }
-          } else {
-            // Producto sin receta (se vende directo): devolver stock del producto
-            const stockProducto = await tx.stock.findFirst({
-              where: {
-                productoId: item.productoId,
-                sucursalId: venta.sucursalId,
-              },
-            })
-
-            const cantidadAnterior = stockProducto
-              ? Number(stockProducto.cantidad)
-              : 0
-            const cantidadNueva = cantidadAnterior + Number(item.cantidad)
-
-            if (stockProducto) {
-              await tx.stock.update({
-                where: { id: stockProducto.id },
-                data: { cantidad: cantidadNueva },
-              })
-            } else {
-              await tx.stock.create({
-                data: {
-                  producto: { connect: { id: item.productoId } },
-                  sucursal: { connect: { id: venta.sucursalId } },
-                  cantidad: Number(item.cantidad),
-                },
-              })
-            }
-
-            await tx.movimientoInventario.create({
-              data: {
-                producto: { connect: { id: item.productoId } },
-                sucursal: { connect: { id: venta.sucursalId } },
-                usuario: { connect: { id: user.id } },
-                tipo: 'ENTRADA_ANULACION',
-                cantidad: Number(item.cantidad),
-                cantidadAnterior,
-                cantidadNueva,
-                referenciaTipo: 'venta_anulada',
-                referenciaId: venta.id,
-                motivo: `Anulación venta ${venta.numero}: ${payload.motivo}`,
-              },
-            })
-          }
-        }
+        await devolverStockDeItems({
+          tx,
+          items: venta.items.map((item) => ({
+            productoId: item.productoId,
+            varianteId: item.varianteId,
+            cantidad: Number(item.cantidad),
+            nombreProducto: item.nombreProducto,
+          })),
+          sucursalId: venta.sucursalId,
+          usuarioId: user.id,
+          referenciaTipo: 'venta_anulada',
+          referenciaId: venta.id,
+          motivo: `Anulación venta ${venta.numero}: ${payload.motivo}`,
+        })
       }
 
-      // 2.4 Crear Nota de Crédito (si aplica)
+      // 2.4 Crear Nota de Crédito (correlativo atómico)
       let notaCredito = null
       if (payload.generarNotaCredito && venta.factura) {
-        const año = new Date().getFullYear()
-        const ultimaNC = await tx.notaCredito.findFirst({
-          where: { sucursalId: venta.sucursalId },
-          orderBy: { numeroSucursal: 'desc' },
-          select: { numeroSucursal: true },
-        })
-        const numeroNCSucursal = (ultimaNC?.numeroSucursal ?? 0) + 1
-        const numeroNCCompleto = `NC-${año}-${String(numeroNCSucursal).padStart(6, '0')}`
+        const numNC = await siguienteCorrelativo(
+          'NOTA_CREDITO',
+          venta.sucursalId,
+          tx
+        )
+        const numeroNCCompleto = formatNotaCredito(numNC)
 
         notaCredito = await tx.notaCredito.create({
           data: {
             numero: numeroNCCompleto,
-            numeroSucursal: numeroNCSucursal,
+            numeroSucursal: numNC,
             facturaOriginal: { connect: { id: venta.factura.id } },
             venta: { connect: { id: venta.id } },
             sucursal: { connect: { id: venta.sucursalId } },
             motivo: payload.motivo,
             subtotal: venta.subtotal,
             subtotalExento: 0,
-            subtotalGravado: Number(venta.subtotal) - Number(venta.descuento),
+            subtotalGravado:
+              Number(venta.subtotal) - Number(venta.descuento),
             descuento: venta.descuento,
             iva: venta.impuesto,
             total: venta.total,

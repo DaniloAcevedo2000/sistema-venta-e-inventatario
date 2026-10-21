@@ -352,9 +352,27 @@ export function PedidoForm({ categorias, productos, zonas, clientes }: Props) {
   }, [productos, categoriaActiva, categorias, busqueda])
 
   // ============================================
+  // VALIDACIONES
+  // ============================================
+  const tieneUbicacion = latitud !== null && longitud !== null
+
+  const puedeGuardar =
+    items.length > 0 &&
+    clienteNombre.trim().length > 0 &&
+    clienteTelefono.trim().length > 0 &&
+    (tipo === 'PICKUP' ||
+      (clienteDireccion.trim().length > 0 && zonaId && tieneUbicacion))
+
+  // ============================================
   // SUBMIT
   // ============================================
   const handleSubmit = (formData: FormData) => {
+    // Validación previa (defensiva)
+    if (tipo === 'DELIVERY' && !tieneUbicacion) {
+      toast.error('Marca la ubicación del cliente en el mapa antes de guardar')
+      return
+    }
+
     const payload = {
       tipo,
       clienteId: clienteId || null,
@@ -386,15 +404,6 @@ export function PedidoForm({ categorias, productos, zonas, clientes }: Props) {
     formData.set('payload', JSON.stringify(payload))
     return formAction(formData)
   }
-
-  // ============================================
-  // VALIDACIONES
-  // ============================================
-  const puedeGuardar =
-    items.length > 0 &&
-    clienteNombre.trim() &&
-    clienteTelefono.trim() &&
-    (tipo === 'PICKUP' || (clienteDireccion.trim() && zonaId))
 
   return (
     <form action={handleSubmit} className="space-y-6">
@@ -613,10 +622,23 @@ export function PedidoForm({ categorias, productos, zonas, clientes }: Props) {
                 <Label className="flex items-center gap-2">
                   <MapPin className="h-3.5 w-3.5" />
                   Ubicación de entrega
+                  <span className="text-destructive">*</span>
                   <span className="text-xs text-muted-foreground font-normal">
-                    (para trazar la ruta)
+                    (obligatorio para trazar la ruta)
                   </span>
                 </Label>
+
+                {/* Aviso si falta ubicación */}
+                {!tieneUbicacion && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 p-3 flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                    <p className="text-xs text-amber-900 dark:text-amber-200">
+                      Haz click en el mapa o busca la dirección para fijar el
+                      pin. Así el repartidor podrá ver la ruta.
+                    </p>
+                  </div>
+                )}
+
                 <SelectorUbicacionWrapper
                   latitud={latitud}
                   longitud={longitud}
@@ -628,6 +650,17 @@ export function PedidoForm({ categorias, productos, zonas, clientes }: Props) {
                   altura="400px"
                   placeholder="Buscar dirección, ej: Plaza Natura Managua"
                 />
+
+                {/* Confirmación visual */}
+                {tieneUbicacion && (
+                  <div className="rounded-lg border border-green-500/30 bg-green-50/50 dark:bg-green-950/10 p-2 flex items-center gap-2">
+                    <Check className="h-4 w-4 text-green-600" />
+                    <p className="text-xs text-green-900 dark:text-green-200">
+                      Ubicación fijada: {latitud.toFixed(5)},{' '}
+                      {longitud.toFixed(5)}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -953,6 +986,28 @@ export function PedidoForm({ categorias, productos, zonas, clientes }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      {/* ============================================
+          AVISO FINAL SI FALTA ALGO
+          ============================================ */}
+      {tipo === 'DELIVERY' && !puedeGuardar && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 p-3 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+          <div className="text-xs text-amber-900 dark:text-amber-200">
+            <p className="font-medium">
+              Faltan datos para crear el pedido:
+            </p>
+            <ul className="list-disc list-inside mt-1 space-y-0.5">
+              {items.length === 0 && <li>Agrega al menos un producto</li>}
+              {!clienteNombre.trim() && <li>Nombre del cliente</li>}
+              {!clienteTelefono.trim() && <li>Teléfono del cliente</li>}
+              {!clienteDireccion.trim() && <li>Dirección de entrega</li>}
+              {!zonaId && <li>Zona de entrega</li>}
+              {!tieneUbicacion && <li>Ubicación en el mapa (obligatorio)</li>}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* ============================================
           BOTONES
