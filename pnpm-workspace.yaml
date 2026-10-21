@@ -1,9 +1,10 @@
 packages:
   - '.'
+
 onlyBuiltDependencies:
   - '@prisma/client'
   - '@prisma/engines'
-  - prisma
-  - core-js
-  - sharp
-  - esbuild
+  - 'prisma'
+  - 'core-js'
+  - 'esbuild'
+  - 'unrs-resolver'
