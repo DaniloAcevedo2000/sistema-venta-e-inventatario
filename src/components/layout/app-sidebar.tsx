@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/sidebar'
 import { navGroups } from '@/config/nav'
 import { NavUser } from './nav-user'
-import { BranchSwitcher, SucursalItem } from './branch-switcher' // 👈 Importamos SucursalItem
+import { BranchSwitcher, SucursalItem } from './branch-switcher' // Importamos SucursalItem
 
 // 👇 1. Agregamos la prop 'sucursales' a la firma del componente
 export function AppSidebar({ sucursales, ...props }: { sucursales: SucursalItem[] } & React.ComponentProps<typeof Sidebar>) {

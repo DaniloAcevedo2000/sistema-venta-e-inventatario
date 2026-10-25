@@ -1,21 +1,28 @@
 import 'dotenv/config'
+import { execSync } from 'child_process'
 
 async function runSeeds() {
   console.log('🌱 Iniciando seeding maestro...')
 
+  const archivos = [
+    './seed', // 1. Roles, sucursales, permisos base
+    './seed-permisos-proveedor-compra',
+    './seed-permisos-anulacion',
+    './seed-permisos-caja',
+    './seed-permisos-pedidos',
+    './seed-catalogo',
+    './seed-cajeros', // 4. Ahora sí, los roles ya existen
+    './seed-pagos',
+    './seed-ubicacion-negocio',
+    './seed-zonas-entrega',
+  ]
+
   try {
-    // Importamos dinámicamente cada archivo uno por uno.
-    // Al usar import() dinámico, esperamos a que uno termine antes de pasar al siguiente.
-    await import('./seed-permisos-proveedor-compra')
-    await import('./seed-permisos-anulacion')
-    await import('./seed-permisos-caja')
-    await import('./seed-permisos-pedidos')
-    await import('./seed-catalogo')
-    await import('./seed-cajeros')
-    await import('./seed-pagos')
-    await import('./seed-ubicacion-negocio')
-    await import('./seed-zonas-entrega')
-    await import('./seed')
+    for (const archivo of archivos) {
+      console.log(`⏳ Ejecutando ${archivo}.ts...`)
+      // Ejecutamos cada archivo en un proceso separado y esperamos a que termine
+      execSync(`npx tsx prisma/${archivo}.ts`, { stdio: 'inherit', env: process.env })
+    }
     
     console.log('✅ Seeding completado con éxito.')
   } catch (error) {

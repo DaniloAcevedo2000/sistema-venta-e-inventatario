@@ -5,12 +5,11 @@ import {
   CreditCard,
   MapPin,
   Building2,
-  FileText,
   ShieldCheck,
-  Settings,
   ChevronRight,
   Users,
   Wallet,
+  Palette
 } from 'lucide-react'
 
 import {
@@ -19,7 +18,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Palette } from 'lucide-react' 
 
 export const metadata = {
   title: 'Configuración | Momoto Café',
@@ -66,14 +64,6 @@ export default async function ConfiguracionPage() {
       iconColor: 'text-indigo-600',
     },
     {
-      title: 'Roles y Permisos',
-      description: 'Configuración de roles y permisos',
-      href: '/roles',
-      icon: ShieldCheck,
-      color: 'from-red-500/10 to-red-600/5 border-red-500/20',
-      iconColor: 'text-red-600',
-    },
-    {
       title: 'Sucursales',
       description: 'Administra las sucursales del negocio',
       href: '/sucursales',
@@ -109,10 +99,13 @@ export default async function ConfiguracionPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {opciones.map((op) => {
+        {opciones.map((op, index) => {
           const Icon = op.icon
+          // 🔴 Usamos el índice como fallback para que nunca se repita la key
+          const uniqueKey = `${op.href}-${index}`
+          
           return (
-            <Link key={op.href} href={op.href} className="group">
+            <Link key={uniqueKey} href={op.href} className="group">
               <Card
                 className={`h-full bg-gradient-to-br ${op.color} hover:shadow-md transition-all group-hover:-translate-y-0.5 cursor-pointer`}
               >

@@ -13,8 +13,9 @@ import {
   getTasaCambioActiva,
   getSerieFactura,
   getSesionCajaAbierta,
-  getCodigoSucursal, // 👈 Importamos el nuevo helper
+  getCodigoSucursal,
 } from '@/lib/helpers/negocio'
+import { crearNotificacion } from '@/lib/notificaciones'
 
 type ItemCarrito = {
   id: string
@@ -308,6 +309,17 @@ export async function crearVentaAction(
             } as any,
           },
         })
+
+        await crearNotificacion({
+          titulo: 'Nueva venta al crédito',
+          descripcion: `Venta a crédito a ${cliente.nombre} por C$ ${total.toFixed(2)} en ${numeroVentaCompleto}.`,
+          tipo: 'info',
+          href: '/creditos',
+          modulo: 'ventas',
+          sucursalId,
+          permisoRequerido: 'creditos:gestionar',
+        })
+
       }
 
       // 6.7 Factura

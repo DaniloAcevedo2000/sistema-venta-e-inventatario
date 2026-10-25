@@ -15,7 +15,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma as any),
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 días
+    maxAge: 30 * 24 * 60 * 60,
   },
   pages: {
     signIn: '/login',
@@ -41,11 +41,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               include: {
                 rol: {
                   include: {
-                    permisos: {
-                      include: {
-                        permiso: true,
-                      },
-                    },
+                    permisos: { include: { permiso: true } },
                   },
                 },
               },
@@ -54,17 +50,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         })
 
         if (!usuario || !usuario.activo) return null
-
         const passwordOk = await bcrypt.compare(contrasena, usuario.contrasenaHash)
         if (!passwordOk) return null
 
         const roles = usuario.roles.map((ur) => ur.rol.codigo)
         const permisos = Array.from(
-          new Set(
-            usuario.roles.flatMap((ur) =>
-              ur.rol.permisos.map((rp) => rp.permiso.codigo)
-            )
-          )
+          new Set(usuario.roles.flatMap((ur) => ur.rol.permisos.map((rp) => rp.permiso.codigo)))
         )
 
         await prisma.usuario.update({
@@ -78,6 +69,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: usuario.correo,
           nombre: usuario.nombre,
           correo: usuario.correo,
+          avatarUrl: usuario.avatarUrl, 
           sucursalId: usuario.sucursalId,
           sucursalNombre: usuario.sucursal?.nombre ?? null,
           roles,
@@ -94,38 +86,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (isOnApi) return true
       if (isOnLogin) {
-        if (isLoggedIn) {
-          return Response.redirect(new URL('/dashboard', nextUrl))
-        }
+        if (isLoggedIn) return Response.redirect(new URL('/dashboard', nextUrl))
         return true
       }
       return isLoggedIn
     },
     
-    // Agregamos trigger y session a los parámetros
     async jwt({ token, user, trigger, session }) {
-      // 1. Login inicial
       if (user) {
         token.id = user.id
         token.nombre = user.nombre
         token.correo = user.correo
+        token.avatarUrl = user.avatarUrl // <-- NUEVO
         token.sucursalId = user.sucursalId
         token.sucursalNombre = user.sucursalNombre
         token.roles = user.roles
         token.permisos = user.permisos
       }
 
-      // 2. Actualización desde el cliente (Cambio de sucursal)
+      // Si el usuario actualiza su perfil (foto), actualizamos el token
+      if (trigger === 'update' && session?.avatarUrl) {
+        token.avatarUrl = session.avatarUrl
+      }
+
       if (trigger === 'update' && session?.sucursalId) {
         token.sucursalId = session.sucursalId
-        
-        // Buscamos el nombre de la nueva sucursal para mantenerlo sincronizado
         const sucursal = await prisma.sucursal.findUnique({
           where: { id: session.sucursalId }
         })
-        if (sucursal) {
-          token.sucursalNombre = sucursal.nombre
-        }
+        if (sucursal) token.sucursalNombre = sucursal.nombre
       }
 
       return token
@@ -136,6 +125,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.id as string
         session.user.nombre = token.nombre as string
         session.user.correo = token.correo as string
+        session.user.avatarUrl = (token.avatarUrl as string | null) ?? null 
         session.user.sucursalId = (token.sucursalId as string | null) ?? null
         session.user.sucursalNombre = (token.sucursalNombre as string | null) ?? null
         session.user.roles = (token.roles as string[]) ?? []

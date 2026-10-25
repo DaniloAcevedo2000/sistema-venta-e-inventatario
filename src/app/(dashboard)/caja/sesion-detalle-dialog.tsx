@@ -14,8 +14,8 @@ import {
   CreditCard,
   Clock,
   Wallet,
-  Landmark,
   Info,
+  ShieldAlert,
 } from 'lucide-react'
 
 import {
@@ -88,25 +88,21 @@ export function SesionDetalleDialog({ open, onOpenChange, sesionId }: Props) {
   }
 
   const puedeAgregarMovimiento = sesion.estado === 'ABIERTA'
-  const estaCerrada = sesion.estado === 'CERRADA'
+  const estaCerrada = sesion.estado === 'CERRADA' || sesion.estado === 'RECHAZADA'
 
-  // Efectivo esperado en caja física
   const efectivoEsperado =
     sesion.montoInicial +
     sesion.totalEfectivo +
     (sesion.totalIngresos || 0) -
     (sesion.totalEgresos || 0)
 
-  // Total del turno (fondo + todas las ventas)
   const totalTurno = sesion.montoInicial + sesion.totalVentas
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="!max-w-[95vw] w-[95vw] h-[92vh] !p-0 overflow-hidden flex flex-col gap-0">
-          {/* ============================================
-              HEADER
-              ============================================ */}
+          {/* HEADER (Se quitó el botón X manual para no duplicar) */}
           <div className="px-6 py-4 border-b flex items-center justify-between flex-shrink-0">
             <div>
               <DialogTitle className="text-xl font-bold">
@@ -119,158 +115,78 @@ export function SesionDetalleDialog({ open, onOpenChange, sesionId }: Props) {
                 )}
               </DialogDescription>
             </div>
-            <div className="flex items-center gap-2">
-              {sesion.estado === 'ABIERTA' ? (
-                <Badge className="bg-green-600">Abierta</Badge>
-              ) : (
-                <Badge variant="outline">Cerrada</Badge>
-              )}
+            <div className="flex items-center gap-2 pr-6">
+              {sesion.estado === 'ABIERTA' && <Badge className="bg-green-600">Abierta</Badge>}
+              {sesion.estado === 'POR_AUTORIZAR' && <Badge className="bg-amber-500 text-white">Por Autorizar</Badge>}
+              {sesion.estado === 'RECHAZADA' && <Badge variant="destructive">Rechazada</Badge>}
+              {sesion.estado === 'CERRADA' && <Badge variant="outline">Cerrada</Badge>}
+              
               {puedeAgregarMovimiento && (
                 <Button size="sm" onClick={() => setMovimientoOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Movimiento manual
+                  <Plus className="mr-2 h-4 w-4" /> Movimiento manual
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenChange(false)}
-              >
-                <X className="h-5 w-5" />
-              </Button>
             </div>
           </div>
 
-          {/* ============================================
-              CONTENIDO
-              ============================================ */}
+          {/* CONTENIDO */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* ============================================
-                CARDS RESUMEN
-                ============================================ */}
+            
+            {/* 1. CARDS RESUMEN */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              {/* Monto Inicial */}
               <Card>
                 <CardContent className="pt-6">
                   <div className="flex items-center gap-2 mb-1">
                     <Wallet className="h-3.5 w-3.5 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">
-                      Monto Inicial
-                    </p>
+                    <p className="text-xs text-muted-foreground">Monto Inicial</p>
                   </div>
-                  <p className="text-xl font-bold">
-                    C$ {sesion.montoInicial.toFixed(2)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Base del turno
-                  </p>
+                  <p className="text-xl font-bold">C$ {sesion.montoInicial.toFixed(2)}</p>
                 </CardContent>
               </Card>
 
-              {/* Total Ventas */}
               <Card className="border-green-500/30 bg-green-50/50 dark:bg-green-950/10">
                 <CardContent className="pt-6">
                   <div className="flex items-center gap-2 mb-1">
                     <TrendingUp className="h-3.5 w-3.5 text-green-600" />
-                    <p className="text-xs text-muted-foreground">
-                      Total Ventas
-                    </p>
+                    <p className="text-xs text-muted-foreground">Total Ventas</p>
                   </div>
-                  <p className="text-xl font-bold text-green-600">
-                    C$ {sesion.totalVentas.toFixed(2)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    {sesion.cantidadVentasCompletadas ?? 0} ventas
-                    {sesion.cantidadVentasAnuladas > 0 && (
-                      <> · {sesion.cantidadVentasAnuladas} anuladas</>
-                    )}
-                  </p>
+                  <p className="text-xl font-bold text-green-600">C$ {sesion.totalVentas.toFixed(2)}</p>
                 </CardContent>
               </Card>
 
-              {/* Efectivo cobrado */}
               <Card className="border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/10">
                 <CardContent className="pt-6">
                   <div className="flex items-center gap-2 mb-1">
                     <Banknote className="h-3.5 w-3.5 text-emerald-600" />
-                    <p className="text-xs text-muted-foreground">
-                      Efectivo cobrado
-                    </p>
+                    <p className="text-xs text-muted-foreground">Efectivo cobrado</p>
                   </div>
-                  <p className="text-xl font-bold text-emerald-600">
-                    C$ {sesion.totalEfectivo.toFixed(2)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Va a la caja
-                  </p>
+                  <p className="text-xl font-bold text-emerald-600">C$ {sesion.totalEfectivo.toFixed(2)}</p>
                 </CardContent>
               </Card>
 
-              {/* Efectivo esperado en caja */}
               <Card className="border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/10">
                 <CardContent className="pt-6">
                   <div className="flex items-center gap-2 mb-1">
                     <Wallet className="h-3.5 w-3.5 text-blue-600" />
                     <p className="text-xs text-muted-foreground">
-                      {estaCerrada ? 'Efectivo en caja' : 'Efectivo esperado'}
+                      {estaCerrada ? 'Efectivo contado' : 'Efectivo esperado'}
                     </p>
                   </div>
                   <p className="text-xl font-bold text-blue-600">
-                    C${' '}
-                    {estaCerrada && sesion.montoFinal !== null
-                      ? sesion.montoFinal.toFixed(2)
-                      : efectivoEsperado.toFixed(2)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    {estaCerrada
-                      ? 'Contado al cierre'
-                      : `C$ ${sesion.montoInicial.toFixed(2)} + C$ ${sesion.totalEfectivo.toFixed(2)}`}
+                    C$ {estaCerrada && sesion.montoFinal !== null ? sesion.montoFinal.toFixed(2) : efectivoEsperado.toFixed(2)}
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Diferencia / Total del turno */}
               {estaCerrada ? (
-                <Card
-                  className={
-                    sesion.diferencia !== null &&
-                    Math.abs(sesion.diferencia) > 0.01
-                      ? 'border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/10'
-                      : 'border-green-500/50 bg-green-50/50 dark:bg-green-950/10'
-                  }
-                >
+                <Card className={sesion.diferencia !== null && Math.abs(sesion.diferencia) > 0.01 ? 'border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/10' : 'border-green-500/50 bg-green-50/50 dark:bg-green-950/10'}>
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-2 mb-1">
                       <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                      <p className="text-xs text-muted-foreground">
-                        Diferencia
-                      </p>
+                      <p className="text-xs text-muted-foreground">Diferencia</p>
                     </div>
-                    <p
-                      className={`text-xl font-bold ${
-                        sesion.diferencia === null
-                          ? 'text-muted-foreground'
-                          : Math.abs(sesion.diferencia) < 0.01
-                            ? 'text-green-600'
-                            : sesion.diferencia > 0
-                              ? 'text-amber-600'
-                              : 'text-red-600'
-                      }`}
-                    >
-                      {sesion.diferencia === null
-                        ? '—'
-                        : `C$ ${sesion.diferencia.toFixed(2)}`}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      {sesion.diferencia !== null &&
-                      Math.abs(sesion.diferencia) < 0.01
-                        ? 'Cuadra ✓'
-                        : sesion.diferencia !== null && sesion.diferencia > 0
-                          ? 'Sobrante'
-                          : sesion.diferencia !== null &&
-                              sesion.diferencia < 0
-                            ? 'Faltante'
-                            : 'Sin arqueo'}
+                    <p className={`text-xl font-bold ${sesion.diferencia > 0 ? 'text-amber-600' : sesion.diferencia < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {sesion.diferencia !== null ? `C$ ${sesion.diferencia.toFixed(2)}` : '—'}
                     </p>
                   </CardContent>
                 </Card>
@@ -279,184 +195,100 @@ export function SesionDetalleDialog({ open, onOpenChange, sesionId }: Props) {
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-2 mb-1">
                       <TrendingUp className="h-3.5 w-3.5 text-purple-600" />
-                      <p className="text-xs text-muted-foreground">
-                        Total del turno
-                      </p>
+                      <p className="text-xs text-muted-foreground">Total del turno</p>
                     </div>
-                    <p className="text-xl font-bold text-purple-600">
-                      C$ {totalTurno.toFixed(2)}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Fondo + Ventas
-                    </p>
+                    <p className="text-xl font-bold text-purple-600">C$ {totalTurno.toFixed(2)}</p>
                   </CardContent>
                 </Card>
               )}
             </div>
 
-            {/* Alerta de diferencia */}
-            {estaCerrada &&
-              sesion.diferencia !== null &&
-              Math.abs(sesion.diferencia) > 0.01 && (
-                <div
-                  className={`rounded-lg border p-4 flex items-start gap-3 ${
-                    sesion.diferencia > 0
-                      ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900'
-                      : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900'
-                  }`}
-                >
-                  <TrendingDown
-                    className={`h-5 w-5 mt-0.5 shrink-0 ${
-                      sesion.diferencia > 0 ? 'text-amber-600' : 'text-red-600'
-                    }`}
-                  />
-                  <div>
-                    <p
-                      className={`font-semibold text-sm ${
-                        sesion.diferencia > 0
-                          ? 'text-amber-900 dark:text-amber-200'
-                          : 'text-red-900 dark:text-red-200'
-                      }`}
-                    >
-                      {sesion.diferencia > 0
-                        ? 'Sobrante en caja'
-                        : 'Faltante en caja'}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Esperado: C$ {sesion.montoEsperado?.toFixed(2)} · Contado:
-                      C$ {sesion.montoFinal?.toFixed(2)} · Diferencia: C${' '}
-                      {sesion.diferencia.toFixed(2)}
-                    </p>
+            {/* 2. TARJETA DE DIFERENCIA Y AUTORIZACIÓN (FUERA DEL GRID) */}
+            {sesion.diferencia !== null && Math.abs(sesion.diferencia) > 0.01 && (
+              <Card className={`border ${
+                sesion.estado === 'RECHAZADA' ? 'border-red-500/50 bg-red-50/50 dark:bg-red-950/10' : 
+                sesion.estado === 'CERRADA' ? 'border-green-500/50 bg-green-50/50 dark:bg-green-950/10' : 
+                'border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/10'
+              }`}>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <ShieldAlert className={`h-4 w-4 ${
+                      sesion.estado === 'RECHAZADA' ? 'text-red-600' : 
+                      sesion.estado === 'CERRADA' ? 'text-green-600' : 
+                      'text-amber-600'
+                    }`} />
+                    Detalles de la Diferencia
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Motivo Seleccionado:</p>
+                      <p className="font-medium">{sesion.motivoDiferencia || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Diferencia:</p>
+                      <p className={`font-bold ${sesion.diferencia > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {sesion.diferencia > 0 ? '+' : ''} C$ {sesion.diferencia.toFixed(2)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              )}
 
-            {/* ============================================
-                DESGLOSE: ¿A DÓNDE VA EL DINERO?
-                ============================================ */}
+                  {sesion.comentarioCajero && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Explicación del Cajero:</p>
+                      <div className="bg-background rounded-md p-3 border italic text-xs">"{sesion.comentarioCajero}"</div>
+                    </div>
+                  )}
+
+                  {sesion.comentarioAutorizador && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Comentario del Autorizador:</p>
+                      <div className="bg-background rounded-md p-3 border italic text-xs">"{sesion.comentarioAutorizador}"</div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 3. DESGLOSE */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <Info className="h-4 w-4" />
-                  Desglose del dinero
-                  {sesion.estado === 'ABIERTA' && (
-                    <span className="text-xs font-normal text-muted-foreground">
-                      (en tiempo real)
-                    </span>
-                  )}
+                  <Info className="h-4 w-4" /> Desglose del dinero
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Efectivo */}
                 <div className="flex items-center justify-between rounded-lg border bg-emerald-50/50 dark:bg-emerald-950/10 p-3">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-emerald-100 dark:bg-emerald-900/40 p-2">
-                      <Banknote className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Efectivo</p>
-                      <p className="text-xs text-muted-foreground">
-                        Va físicamente a la caja
-                      </p>
-                    </div>
+                    <Banknote className="h-4 w-4 text-emerald-600" />
+                    <p className="text-sm font-medium">Efectivo (Va físicamente)</p>
                   </div>
-                  <p className="font-bold text-emerald-600">
-                    C$ {sesion.totalEfectivo.toFixed(2)}
-                  </p>
+                  <p className="font-bold text-emerald-600">C$ {sesion.totalEfectivo.toFixed(2)}</p>
                 </div>
-
-                {/* Tarjeta */}
                 <div className="flex items-center justify-between rounded-lg border bg-blue-50/50 dark:bg-blue-950/10 p-3">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-blue-100 dark:bg-blue-900/40 p-2">
-                      <CreditCard className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Tarjeta</p>
-                      <p className="text-xs text-muted-foreground">
-                        Va a la cuenta bancaria (POS)
-                      </p>
-                    </div>
+                    <CreditCard className="h-4 w-4 text-blue-600" />
+                    <p className="text-sm font-medium">Tarjeta (POS)</p>
                   </div>
-                  <p className="font-bold text-blue-600">
-                    C$ {sesion.totalTarjeta.toFixed(2)}
-                  </p>
+                  <p className="font-bold text-blue-600">C$ {sesion.totalTarjeta.toFixed(2)}</p>
                 </div>
-
-                {/* Transferencia */}
                 <div className="flex items-center justify-between rounded-lg border bg-purple-50/50 dark:bg-purple-950/10 p-3">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-purple-100 dark:bg-purple-900/40 p-2">
-                      <Building2 className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Transferencia</p>
-                      <p className="text-xs text-muted-foreground">
-                        Ya está en la cuenta bancaria
-                      </p>
-                    </div>
+                    <Building2 className="h-4 w-4 text-purple-600" />
+                    <p className="text-sm font-medium">Transferencia (Banco)</p>
                   </div>
-                  <p className="font-bold text-purple-600">
-                    C$ {sesion.totalTransferencia.toFixed(2)}
-                  </p>
+                  <p className="font-bold text-purple-600">C$ {sesion.totalTransferencia.toFixed(2)}</p>
                 </div>
-
-                {/* Desglose extendido */}
-                {(sesion.totalIngresos > 0 ||
-                  sesion.totalEgresos > 0 ||
-                  sesion.totalAnulado > 0) && (
-                  <>
-                    <Separator />
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      {sesion.totalIngresos > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <TrendingUp className="h-3 w-3 text-green-600" />
-                            Ingresos manuales
-                          </div>
-                          <p className="font-bold text-green-600 mt-1">
-                            + C$ {sesion.totalIngresos.toFixed(2)}
-                          </p>
-                        </div>
-                      )}
-                      {sesion.totalEgresos > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <TrendingDown className="h-3 w-3 text-red-600" />
-                            Egresos manuales
-                          </div>
-                          <p className="font-bold text-red-600 mt-1">
-                            - C$ {sesion.totalEgresos.toFixed(2)}
-                          </p>
-                        </div>
-                      )}
-                      {sesion.totalAnulado > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <X className="h-3 w-3 text-destructive" />
-                            Ventas anuladas
-                          </div>
-                          <p className="font-bold text-destructive mt-1">
-                            - C$ {sesion.totalAnulado.toFixed(2)}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
                 <Separator />
-
-                {/* Total */}
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold">Total vendido en el turno</p>
-                  <p className="text-lg font-bold text-primary">
-                    C$ {sesion.totalVentas.toFixed(2)}
-                  </p>
+                  <p className="text-lg font-bold text-primary">C$ {sesion.totalVentas.toFixed(2)}</p>
                 </div>
               </CardContent>
             </Card>
 
+            
             {/* ============================================
                 MOVIMIENTOS MANUALES
                 ============================================ */}
@@ -632,6 +464,7 @@ export function SesionDetalleDialog({ open, onOpenChange, sesionId }: Props) {
                 </div>
               </CardContent>
             </Card>
+            
           </div>
         </DialogContent>
       </Dialog>

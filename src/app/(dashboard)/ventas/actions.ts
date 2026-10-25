@@ -8,6 +8,7 @@ import {
   formatNotaCredito,
 } from '@/lib/helpers/correlativos'
 import { devolverStockDeItems } from '@/lib/helpers/inventario'
+import { crearNotificacion } from '@/lib/notificaciones'
 
 type AnularVentaPayload = {
   ventaId: string
@@ -178,6 +179,39 @@ export async function anularVentaAction(
             notaCredito: notaCredito?.numero ?? null,
           } as any,
         },
+      })
+
+      // 1. Notificación Privada (Para el cajero que REGISTRÓ la venta originalmente)
+      if (venta.usuarioId !== user.id) { 
+        await crearNotificacion({
+          titulo: 'Tu venta fue anulada',
+          descripcion: `La venta ${venta.numero} (C$ ${Number(venta.total).toFixed(2)}) que registraste fue anulada por ${user.nombre}. Motivo: ${payload.motivo}`,
+          tipo: 'warning',
+          href: '/ventas',
+          modulo: 'ventas',
+          usuariosDestino: [venta.usuarioId], // AL CREADOR DE LA VENTA
+        })
+      }
+
+      // 2. Notificación Privada (Confirmación para el que anuló)
+      await crearNotificacion({
+        titulo: 'Nota de crédito generada',
+        descripcion: `Has anulado la venta ${venta.numero} por un monto de C$ ${Number(venta.total).toFixed(2)}.`,
+        tipo: 'success',
+        href: '/ventas',
+        modulo: 'ventas',
+        usuariosDestino: [user.id], 
+      })
+
+      // 3. Notificación Pública (Para Admins/Gerentes - para auditoría)
+      await crearNotificacion({
+        titulo: 'Venta anulada',
+        descripcion: `${user.nombre} anuló la venta ${venta.numero} (C$ ${Number(venta.total).toFixed(2)}). Motivo: ${payload.motivo}`,
+        tipo: 'error', 
+        href: '/ventas',
+        modulo: 'ventas',
+        sucursalId: venta.sucursalId,
+        permisoRequerido: 'ventas:anular_historico', 
       })
 
       return { notaCredito }

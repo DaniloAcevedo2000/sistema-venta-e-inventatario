@@ -16,6 +16,7 @@ async function main() {
     { codigo: 'caja:cerrar', nombre: 'Cerrar caja', grupo: 'Caja' },
     { codigo: 'caja:ver', nombre: 'Ver sesiones de caja', grupo: 'Caja' },
     { codigo: 'caja:ver_todas', nombre: 'Ver todas las sesiones de caja', grupo: 'Caja' },
+    { codigo: 'caja:autorizar_diferencia', nombre: 'Autorizar diferencias en caja', grupo: 'Caja' },
   ]
 
   for (const p of permisosRequeridos) {
@@ -26,16 +27,16 @@ async function main() {
     })
   }
 
-  console.log(`${permisosRequeridos.length} permisos de caja`)
+  console.log(`${permisosRequeridos.length} permisos de caja configurados`)
 
   // ============================================
   // 2. ASIGNAR A ROLES
   // ============================================
   const asignaciones: Record<string, string[]> = {
-    SUPER_ADMIN: ['caja:abrir', 'caja:cerrar', 'caja:ver', 'caja:ver_todas'],
-    ADMIN: ['caja:abrir', 'caja:cerrar', 'caja:ver', 'caja:ver_todas'],
-    GERENTE: ['caja:abrir', 'caja:cerrar', 'caja:ver', 'caja:ver_todas'],
-    CAJERO: ['caja:abrir', 'caja:cerrar', 'caja:ver'], 
+    SUPER_ADMIN: ['caja:abrir', 'caja:cerrar', 'caja:ver', 'caja:ver_todas', 'caja:autorizar_diferencia'],
+    ADMIN: ['caja:abrir', 'caja:cerrar', 'caja:ver', 'caja:ver_todas', 'caja:autorizar_diferencia'],
+    GERENTE: ['caja:abrir', 'caja:cerrar', 'caja:ver', 'caja:ver_todas', 'caja:autorizar_diferencia'],
+    CAJERO: ['caja:abrir', 'caja:cerrar', 'caja:ver'], // El cajero NO autoriza
   }
 
   for (const [rolCodigo, permisos] of Object.entries(asignaciones)) {
@@ -59,7 +60,7 @@ async function main() {
         create: { rolId: rol.id, permisoId: permiso.id },
       })
     }
-    console.log(`   ✓ ${rolCodigo}: ${permisos.length} permisos de caja`)
+    console.log(`   ✓ ${rolCodigo}: ${permisos.length} permisos de caja asignados`)
   }
 
   // ============================================

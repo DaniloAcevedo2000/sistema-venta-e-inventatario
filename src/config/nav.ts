@@ -21,6 +21,7 @@ import {
   PackageCheck,
   FileText,
   Navigation,
+  ShieldAlert,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -42,6 +43,7 @@ export const navGroups: NavGroup[] = [
       { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: 'dashboard:ver' },
       { title: 'POS', href: '/pos', icon: ShoppingCart, permission: 'ventas:crear' },
       { title: 'Caja', href: '/caja', icon: Wallet, permission: 'caja:ver' },
+      { title: 'Autorizaciones Caja', href: '/caja/autorizaciones', icon: ShieldAlert, permission: 'caja:autorizar_diferencia' },
       { title: 'Mis Entregas', href: '/mis-entregas', icon: Navigation, permission: 'delivery:ver' },
     ],
   },

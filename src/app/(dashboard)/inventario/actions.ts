@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { crearNotificacion } from '@/lib/notificaciones'
 
 type ActionState = {
   success?: boolean
@@ -109,6 +110,16 @@ export async function ajustarStockInsumoAction(
         },
       }),
     ])
+
+    await crearNotificacion({
+      titulo: 'Ajuste de inventario',
+      descripcion: `Se ajustó stock de insumo (${tipoAjuste === 'sumar' ? '+' : tipoAjuste === 'restar' ? '-' : '='} ${cantidadNum}). Motivo: ${motivo}`,
+      tipo: 'warning',
+      href: '/inventario',
+      modulo: 'inventario',
+      sucursalId,
+      permisoRequerido: 'inventario:leer',
+    })
 
     revalidatePath('/inventario')
     return { success: true }

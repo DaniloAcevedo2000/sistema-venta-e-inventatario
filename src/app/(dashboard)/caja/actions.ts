@@ -4,6 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import bcrypt from 'bcryptjs' 
+import { crearNotificacion } from '@/lib/notificaciones'
 
 type ActionState = {
   success?: boolean
@@ -111,54 +113,39 @@ export async function cerrarCajaAction(
     const user = await verificarPermiso('caja:cerrar')
 
     const montoContado = parseFloat(formData.get('montoContado') as string) || 0
-    const observaciones = (formData.get('observaciones') as string) || null
+    const motivoDiferencia = (formData.get('motivoDiferencia') as string) || null
+    const comentarioCajero = (formData.get('comentarioCajero') as string) || null
+
+    if (comentarioCajero && comentarioCajero.length > 500) {
+      return { error: 'El comentario no puede exceder los 500 caracteres.' }
+    }
 
     const sesion = await prisma.sesionCaja.findUnique({
       where: { id: sesionId },
-      include: {
-        ventas: {
-          where: { estado: 'COMPLETADA' },
-        },
-        movimientos: true,
-      },
+      include: { ventas: { where: { estado: 'COMPLETADA' } }, movimientos: true, caja: true },
     })
 
     if (!sesion) return { error: 'Sesión no encontrada' }
-    if (sesion.estado === 'CERRADA') return { error: 'Esta sesión ya está cerrada' }
+    if (sesion.estado !== 'ABIERTA') return { error: 'La caja no está abierta' }
 
-    // Calcular totales
-    const totalEfectivoVentas = sesion.ventas.reduce(
-      (sum, v) => sum + Number(v.totalEfectivoNio),
-      0
-    )
-    const totalTarjeta = sesion.ventas.reduce(
-      (sum, v) => sum + Number(v.totalTarjeta),
-      0
-    )
-    const totalTransferencia = sesion.ventas.reduce(
-      (sum, v) => sum + Number(v.totalTransferencia),
-      0
-    )
+    const totalEfectivoVentas = sesion.ventas.reduce((sum, v) => sum + Number(v.totalEfectivoNio), 0)
+    const totalTarjeta = sesion.ventas.reduce((sum, v) => sum + Number(v.totalTarjeta), 0)
+    const totalTransferencia = sesion.ventas.reduce((sum, v) => sum + Number(v.totalTransferencia), 0)
     const totalVentas = sesion.ventas.reduce((sum, v) => sum + Number(v.total), 0)
+    const ingresos = sesion.movimientos.filter((m) => m.tipo === 'INGRESO').reduce((sum, m) => sum + Number(m.monto), 0)
+    const egresos = sesion.movimientos.filter((m) => m.tipo === 'EGRESO' || m.tipo === 'RETIRO').reduce((sum, m) => sum + Number(m.monto), 0)
 
-    // Movimientos manuales
-    const ingresos = sesion.movimientos
-      .filter((m) => m.tipo === 'INGRESO')
-      .reduce((sum, m) => sum + Number(m.monto), 0)
-    const egresos = sesion.movimientos
-      .filter((m) => m.tipo === 'EGRESO' || m.tipo === 'RETIRO')
-      .reduce((sum, m) => sum + Number(m.monto), 0)
-
-    // Monto esperado = inicial + ventas efectivo + ingresos - egresos
-    const montoEsperado =
-      Number(sesion.montoInicial) + totalEfectivoVentas + ingresos - egresos
+    const montoEsperado = Number(sesion.montoInicial) + totalEfectivoVentas + ingresos - egresos
     const diferencia = montoContado - montoEsperado
 
-    await prisma.$transaction([
-      prisma.sesionCaja.update({
+    if (Math.abs(diferencia) > 0.01) {
+      if (!motivoDiferencia) return { error: 'Debes seleccionar un motivo.' }
+
+      await prisma.sesionCaja.update({
         where: { id: sesionId },
         data: {
-          fechaCierre: new Date(),
+          estado: 'POR_AUTORIZAR',
+          fechaSolicitudAutorizacion: new Date(),
           montoFinal: montoContado,
           montoEsperado,
           diferencia,
@@ -166,33 +153,49 @@ export async function cerrarCajaAction(
           totalEfectivo: totalEfectivoVentas,
           totalTarjeta,
           totalTransferencia,
-          estado: 'CERRADA',
-          observaciones,
+          motivoDiferencia,
+          comentarioCajero,
         },
-      }),
-      prisma.auditoria.create({
-        data: {
-          usuario: { connect: { id: user.id } },
-          accion: 'caja.cerrar',
-          entidadTipo: 'SesionCaja',
-          entidadId: sesionId,
-          datosDespues: {
-            montoContado,
-            montoEsperado,
-            diferencia,
-            observaciones,
-          } as any,
-        },
-      }),
-    ])
+      })
+
+      // NOTIFICACIÓN PÚBLICA (Para Admins)
+      await crearNotificacion({
+        titulo: 'Cierre de caja pendiente',
+        descripcion: `${user.nombre} solicita autorización en ${sesion.caja.nombre}. Diferencia: C$ ${diferencia.toFixed(2)}`,
+        tipo: 'warning',
+        href: '/caja/autorizaciones',
+        modulo: 'caja',
+        sucursalId: user.sucursalId,
+        permisoRequerido: 'caja:autorizar_diferencia', 
+      })
+
+      revalidatePath('/caja')
+      return { 
+        success: true, 
+        error: 'SOLICITUD_ENVIADA: Se ha enviado una solicitud al administrador. La caja espera autorización.' 
+      }
+    }
+
+    await prisma.sesionCaja.update({
+      where: { id: sesionId },
+      data: {
+        fechaCierre: new Date(),
+        montoFinal: montoContado,
+        montoEsperado,
+        diferencia,
+        totalVentas,
+        totalEfectivo: totalEfectivoVentas,
+        totalTarjeta,
+        totalTransferencia,
+        estado: 'CERRADA',
+      },
+    })
 
     revalidatePath('/caja')
     return { success: true }
   } catch (error) {
-    console.error('Error cerrando caja:', error)
-    return {
-      error: error instanceof Error ? error.message : 'Error al cerrar la caja',
-    }
+    console.error(error)
+    return { error: 'Error al procesar el cierre de caja.' }
   }
 }
 
@@ -258,3 +261,60 @@ export async function registrarMovimientoAction(
     }
   }
 }
+
+
+// ============================================
+// AUTORIZAR O RECHAZAR CIERRE DE CAJA
+// ============================================
+export async function resolverAutorizacionCajaAction(
+  sesionId: string,
+  aprobado: boolean,
+  prevState: ActionState | undefined,
+  formData: FormData
+): Promise<ActionState> {
+  try {
+    const user = await verificarPermiso('caja:autorizar_diferencia')
+
+    const comentarioAutorizador = (formData.get('comentarioAutorizador') as string) || null
+
+    if (comentarioAutorizador && comentarioAutorizador.length > 500) {
+      return { error: 'El comentario no puede exceder los 500 caracteres.' }
+    }
+
+    const sesion = await prisma.sesionCaja.findUnique({ 
+      where: { id: sesionId },
+      include: { caja: true }
+    })
+    if (!sesion) return { error: 'Sesión no encontrada' }
+    if (sesion.estado !== 'POR_AUTORIZAR') return { error: 'Esta caja no está pendiente de autorización.' }
+
+    await prisma.sesionCaja.update({
+      where: { id: sesionId },
+      data: {
+        estado: aprobado ? 'CERRADA' : 'RECHAZADA',
+        fechaCierre: aprobado ? new Date() : null,
+        autorizadoPorId: user.id,
+        comentarioAutorizador,
+      },
+    })
+
+    // NOTIFICACIÓN PRIVADA (Para el cajero que la abrió)
+    await crearNotificacion({
+      titulo: aprobado ? 'Cierre de caja aprobado' : 'Cierre de caja rechazado',
+      descripcion: `Tu solicitud de cierre en ${sesion.caja.nombre} fue ${aprobado ? 'APROBADA' : 'RECHAZADA'}.`,
+      tipo: aprobado ? 'success' : 'error',
+      href: '/caja',
+      modulo: 'caja',
+      usuariosDestino: [sesion.usuarioAperturaId], 
+    })
+
+    revalidatePath('/caja')
+    revalidatePath('/autorizaciones')
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error resolviendo autorización:', error)
+    return { error: error instanceof Error ? error.message : 'Error al resolver autorización' }
+  }
+}
+

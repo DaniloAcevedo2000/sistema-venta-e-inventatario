@@ -6,6 +6,7 @@ declare module 'next-auth' {
       id: string
       nombre: string
       correo: string
+      avatarUrl: string | null 
       sucursalId: string | null
       sucursalNombre: string | null
       roles: string[]
@@ -17,19 +18,7 @@ declare module 'next-auth' {
     id: string
     nombre: string
     correo: string
-    sucursalId: string | null
-    sucursalNombre: string | null
-    roles: string[]
-    permisos: string[]
-  }
-}
-
-// Doble declaración por compatibilidad con NextAuth v5 beta
-declare module '@auth/core/jwt' {
-  interface JWT {
-    id: string
-    nombre: string
-    correo: string
+    avatarUrl: string | null 
     sucursalId: string | null
     sucursalNombre: string | null
     roles: string[]
@@ -42,6 +31,7 @@ declare module 'next-auth/jwt' {
     id: string
     nombre: string
     correo: string
+    avatarUrl: string | null 
     sucursalId: string | null
     sucursalNombre: string | null
     roles: string[]

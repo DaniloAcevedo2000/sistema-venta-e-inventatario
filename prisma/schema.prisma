@@ -24,17 +24,20 @@ model Usuario {
   activo         Boolean @default(true)
   telefono       String?
   avatarUrl      String? @map("avatar_url")
+  biografia      String? @db.VarChar(200)
 
   roles      UsuarioRol[]
   sucursalId String?      @map("sucursal_id")
   sucursal   Sucursal?    @relation(fields: [sucursalId], references: [id])
 
-  cuentas    Cuenta[]
-  sesiones   Sesion[]
-  auditorias Auditoria[]
+  cuentas        Cuenta[]
+  sesiones       Sesion[]
+  auditorias     Auditoria[]
+  notificaciones NotificacionUsuario[]
 
   // Relaciones de negocio
-  sesionesCaja        SesionCaja[]
+  sesionesCaja        SesionCaja[]           @relation("UsuarioApertura")
+  sesionesAutorizadas SesionCaja[]           @relation("CajaAutorizadaPor")
   movimientosCaja     MovimientoCaja[]
   ventas              Venta[]                @relation("VentaCreadaPor")
   ventasAnuladas      Venta[]                @relation("VentaAnuladaPor")
@@ -179,7 +182,7 @@ model SesionCaja {
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
 
   usuarioAperturaId String  @map("usuario_apertura_id")
-  usuarioApertura   Usuario @relation(fields: [usuarioAperturaId], references: [id])
+  usuarioApertura   Usuario @relation("UsuarioApertura", fields: [usuarioAperturaId], references: [id])
 
   // Apertura
   fechaApertura DateTime @default(now()) @map("fecha_apertura")
@@ -197,7 +200,20 @@ model SesionCaja {
   totalTarjeta       Decimal @default(0) @map("total_tarjeta") @db.Decimal(12, 2)
   totalTransferencia Decimal @default(0) @map("total_transferencia") @db.Decimal(12, 2)
 
-  estado        String  @default("ABIERTA") // "ABIERTA", "CERRADA"
+  // --- NUEVOS CAMPOS DE AUTORIZACIÓN ---
+  motivoDiferencia String? @map("motivo_diferencia")
+  comentarioCajero String? @map("comentario_cajero") @db.VarChar(500)
+
+  // Comentario del supervisor/administrador al autorizar/rechazar
+  comentarioAutorizador String? @map("comentario_autorizador") @db.VarChar(500)
+
+  autorizadoPorId String?  @map("autorizado_por_id")
+  autorizadoPor   Usuario? @relation("CajaAutorizadaPor", fields: [autorizadoPorId], references: [id])
+
+  fechaSolicitudAutorizacion DateTime? @map("fecha_solicitud_autorizacion")
+
+  // Estados: "ABIERTA", "POR_AUTORIZAR", "CERRADA", "RECHAZADA"
+  estado        String  @default("ABIERTA")
   observaciones String?
 
   ventas      Venta[]
@@ -1376,4 +1392,34 @@ model ItemPedido {
   @@index([pedidoId])
   @@index([productoId])
   @@map("items_pedido")
+}
+
+model Notificacion {
+  id               String   @id @default(cuid())
+  titulo           String
+  descripcion      String
+  tipo             String
+  href             String?
+  modulo           String
+  esPrivada        Boolean  @default(false)
+  permisoRequerido String?  @map("permiso_requerido")
+  sucursalId       String?
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  usuarios NotificacionUsuario[]
+
+  @@index([creadoEn])
+  @@map("notificaciones")
+}
+
+model NotificacionUsuario {
+  notificacionId String    @map("notificacion_id")
+  usuarioId      String    @map("usuario_id")
+  leidaEn        DateTime? @map("leida_en")
+
+  notificacion Notificacion @relation(fields: [notificacionId], references: [id], onDelete: Cascade)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@id([notificacionId, usuarioId])
+  @@map("notificaciones_usuarios")
 }

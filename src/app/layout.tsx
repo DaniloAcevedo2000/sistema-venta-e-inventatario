@@ -2,7 +2,8 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { cookies } from 'next/headers'
 import './globals.css'
-import { ThemeProvider } from '@/components/theme-provider'
+
+import { ThemeProvider } from '@/components/theme-provider' 
 import { SessionProvider } from 'next-auth/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
@@ -19,7 +20,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // Leer tema desde cookie en el servidor (evita flash)
+  // LEEMOS LA COOKIE PARA EVITAR EL FLASH DE TEMA
   const cookieStore = await cookies()
   const savedTheme = cookieStore.get('momoto-theme')?.value as
     | 'light'
@@ -34,6 +35,7 @@ export default async function RootLayout({
     <html lang="es" className={resolvedClass} suppressHydrationWarning>
       <body className={inter.className}>
         <SessionProvider>
+          {/* USAMOS TU PROVIDER PERSONALIZADO */}
           <ThemeProvider initialTheme={initialTheme}>
             <TooltipProvider delayDuration={0}>
               {children}

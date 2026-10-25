@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import Link from 'next/link'
 import { motion } from 'framer-motion'
 import {
   TrendingUp,
@@ -10,10 +9,6 @@ import {
   Unlock,
   Plus,
   Eye,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  Receipt,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -121,9 +116,7 @@ export function CajaDashboard({
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-muted-foreground">Ventas Hoy</p>
-                  <p className="text-2xl font-bold">
-                    C$ {stats.totalVentasHoy.toFixed(2)}
-                  </p>
+                  <p className="text-2xl font-bold">C$ {stats.totalVentasHoy.toFixed(2)}</p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-green-500/50" />
               </div>
@@ -131,19 +124,13 @@ export function CajaDashboard({
           </Card>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
           <Card className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-500/20">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-muted-foreground">Efectivo Hoy</p>
-                  <p className="text-2xl font-bold">
-                    C$ {stats.efectivoHoy.toFixed(2)}
-                  </p>
+                  <p className="text-2xl font-bold">C$ {stats.efectivoHoy.toFixed(2)}</p>
                 </div>
                 <DollarSign className="h-8 w-8 text-blue-500/50" />
               </div>
@@ -151,11 +138,7 @@ export function CajaDashboard({
           </Card>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5 border-amber-500/20">
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -176,8 +159,7 @@ export function CajaDashboard({
           <h2 className="text-lg font-semibold">Cajas de la sucursal</h2>
           {puedeAbrir && (
             <Button onClick={() => setAbrirOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Abrir Caja
+              <Plus className="mr-2 h-4 w-4" /> Abrir Caja
             </Button>
           )}
         </div>
@@ -185,8 +167,7 @@ export function CajaDashboard({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {cajas.map((caja) => {
             const esMiSesion = caja.sesionAbierta?.usuarioId === usuarioActualId
-            const puedeCerrarEstaCaja =
-              caja.sesionAbierta && (esMiSesion || puedeVerTodas)
+            const puedeCerrarEstaCaja = caja.sesionAbierta && (esMiSesion || puedeVerTodas)
 
             return (
               <Card
@@ -202,38 +183,20 @@ export function CajaDashboard({
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <div
-                        className={`rounded-lg p-2 ${
-                          caja.sesionAbierta
-                            ? esMiSesion
-                              ? 'bg-green-100 dark:bg-green-900/40'
-                              : 'bg-amber-100 dark:bg-amber-900/40'
-                            : 'bg-muted'
-                        }`}
-                      >
+                      <div className={`rounded-lg p-2 ${caja.sesionAbierta ? esMiSesion ? 'bg-green-100 dark:bg-green-900/40' : 'bg-amber-100 dark:bg-amber-900/40' : 'bg-muted'}`}>
                         {caja.sesionAbierta ? (
-                          <Unlock
-                            className={`h-5 w-5 ${
-                              esMiSesion ? 'text-green-600' : 'text-amber-600'
-                            }`}
-                          />
+                          <Unlock className={`h-5 w-5 ${esMiSesion ? 'text-green-600' : 'text-amber-600'}`} />
                         ) : (
                           <Lock className="h-5 w-5 text-muted-foreground" />
                         )}
                       </div>
                       <div>
                         <p className="font-semibold">{caja.nombre}</p>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {caja.codigo}
-                        </p>
+                        <p className="text-xs text-muted-foreground font-mono">{caja.codigo}</p>
                       </div>
                     </div>
                     {caja.sesionAbierta ? (
-                      esMiSesion ? (
-                        <Badge className="bg-green-600">Mi sesión</Badge>
-                      ) : (
-                        <Badge variant="secondary">Abierta</Badge>
-                      )
+                      esMiSesion ? <Badge className="bg-green-600">Mi sesión</Badge> : <Badge variant="secondary">Abierta</Badge>
                     ) : (
                       <Badge variant="secondary">Cerrada</Badge>
                     )}
@@ -245,63 +208,34 @@ export function CajaDashboard({
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Cajero</span>
-                          <span className="font-medium">
-                            {caja.sesionAbierta.usuarioNombre}
-                          </span>
+                          <span className="font-medium">{caja.sesionAbierta.usuarioNombre}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Apertura</span>
-                          <span className="text-xs">
-                            {formatearFecha(caja.sesionAbierta.fechaApertura)}
-                          </span>
+                          <span className="text-xs">{formatearFecha(caja.sesionAbierta.fechaApertura)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            Monto inicial
-                          </span>
-                          <span className="font-medium">
-                            C$ {caja.sesionAbierta.montoInicial.toFixed(2)}
-                          </span>
+                          <span className="text-muted-foreground">Monto inicial</span>
+                          <span className="font-medium">C$ {caja.sesionAbierta.montoInicial.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Ventas</span>
-                          <Badge variant="secondary">
-                            {caja.sesionAbierta.cantidadVentas}
-                          </Badge>
+                          <Badge variant="secondary">{caja.sesionAbierta.cantidadVentas}</Badge>
                         </div>
                       </div>
                       <div className="flex gap-2 mt-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => setDetalleSesion(caja.sesionAbierta!.id)}
-                        >
-                          <Eye className="mr-2 h-3 w-3" />
-                          Ver
+                        <Button variant="outline" size="sm" className="flex-1" onClick={() => setDetalleSesion(caja.sesionAbierta!.id)}>
+                          <Eye className="mr-2 h-3 w-3" /> Ver
                         </Button>
                         {puedeCerrarEstaCaja && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            className="flex-1"
-                            onClick={() =>
-                              setCerrarSesion({
-                                id: caja.sesionAbierta!.id,
-                                cajaNombre: caja.nombre,
-                              })
-                            }
-                          >
-                            <Lock className="mr-2 h-3 w-3" />
-                            Cerrar
+                          <Button variant="destructive" size="sm" className="flex-1" onClick={() => setCerrarSesion({ id: caja.sesionAbierta!.id, cajaNombre: caja.nombre })}>
+                            <Lock className="mr-2 h-3 w-3" /> Cerrar
                           </Button>
                         )}
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      Caja disponible
-                    </p>
+                    <p className="text-sm text-muted-foreground text-center py-4">Caja disponible</p>
                   )}
                 </CardContent>
               </Card>
@@ -334,10 +268,7 @@ export function CajaDashboard({
             <TableBody>
               {sesionesRecientes.length === 0 ? (
                 <TableRow>
-                  <TableCell
-                    colSpan={puedeVerTodas ? 10 : 9}
-                    className="h-24 text-center text-muted-foreground"
-                  >
+                  <TableCell colSpan={puedeVerTodas ? 10 : 9} className="h-24 text-center text-muted-foreground">
                     No hay sesiones registradas
                   </TableCell>
                 </TableRow>
@@ -345,68 +276,32 @@ export function CajaDashboard({
                 sesionesRecientes.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{s.cajaNombre}</span>
-                      </div>
+                      <span className="font-medium text-sm">{s.cajaNombre}</span>
                     </TableCell>
-                    {puedeVerTodas && (
-                      <TableCell className="text-sm">{s.usuarioNombre}</TableCell>
-                    )}
-                    <TableCell className="text-xs">
-                      {formatearFecha(s.fechaApertura)}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {s.fechaCierre ? formatearFecha(s.fechaCierre) : '—'}
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      C$ {s.montoInicial.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      {s.montoFinal !== null
-                        ? `C$ ${s.montoFinal.toFixed(2)}`
-                        : '—'}
-                    </TableCell>
+                    {puedeVerTodas && <TableCell className="text-sm">{s.usuarioNombre}</TableCell>}
+                    <TableCell className="text-xs">{formatearFecha(s.fechaApertura)}</TableCell>
+                    <TableCell className="text-xs">{s.fechaCierre ? formatearFecha(s.fechaCierre) : '—'}</TableCell>
+                    <TableCell className="text-right text-sm">C$ {s.montoInicial.toFixed(2)}</TableCell>
+                    <TableCell className="text-right text-sm">{s.montoFinal !== null ? `C$ ${s.montoFinal.toFixed(2)}` : '—'}</TableCell>
                     <TableCell className="text-right">
                       {s.diferencia !== null ? (
-                        <Badge
-                          variant={
-                            Math.abs(s.diferencia) < 0.01
-                              ? 'default'
-                              : s.diferencia > 0
-                                ? 'default'
-                                : 'destructive'
-                          }
-                          className={
-                            Math.abs(s.diferencia) < 0.01
-                              ? 'bg-green-600'
-                              : s.diferencia > 0
-                                ? 'bg-amber-600'
-                                : ''
-                          }
-                        >
-                          {s.diferencia > 0 ? '+' : ''}
-                          {s.diferencia.toFixed(2)}
+                        <Badge variant={Math.abs(s.diferencia) < 0.01 ? 'default' : s.diferencia > 0 ? 'default' : 'destructive'} className={Math.abs(s.diferencia) < 0.01 ? 'bg-green-600' : s.diferencia > 0 ? 'bg-amber-600' : ''}>
+                          {s.diferencia > 0 ? '+' : ''}{s.diferencia.toFixed(2)}
                         </Badge>
-                      ) : (
-                        '—'
-                      )}
+                      ) : ('—')}
                     </TableCell>
                     <TableCell className="text-right">
                       <Badge variant="secondary">{s.cantidadVentas}</Badge>
                     </TableCell>
                     <TableCell>
-                      {s.estado === 'ABIERTA' ? (
-                        <Badge className="bg-green-600">Abierta</Badge>
-                      ) : (
-                        <Badge variant="outline">Cerrada</Badge>
-                      )}
+                      {/* BADGES CORREGIDOS PARA MOSTRAR EL ESTADO REAL */}
+                      {s.estado === 'ABIERTA' && <Badge className="bg-green-600">Abierta</Badge>}
+                      {s.estado === 'POR_AUTORIZAR' && <Badge className="bg-amber-500 hover:bg-amber-600 text-white">Por Autorizar</Badge>}
+                      {s.estado === 'RECHAZADA' && <Badge variant="destructive">Rechazada</Badge>}
+                      {s.estado === 'CERRADA' && <Badge variant="outline">Cerrada</Badge>}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDetalleSesion(s.id)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => setDetalleSesion(s.id)}>
                         <Eye className="h-4 w-4" />
                       </Button>
                     </TableCell>

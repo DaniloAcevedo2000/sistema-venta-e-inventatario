@@ -24,7 +24,6 @@ export default async function ReportesPage() {
       where: { sucursalId: sucursalId || undefined },
       include: { 
         insumo: true, 
-        // 👇 SOLUCIÓN: Incluimos la categoría dentro del producto
         producto: { include: { categoria: true } } 
       }
     }),
@@ -56,7 +55,6 @@ export default async function ReportesPage() {
     name: s.insumo?.nombre || s.producto?.nombre || 'Item',
     actual: Number(s.cantidad),
     minimo: Number(s.insumo?.stockMinimo || 0),
-    // 👇 Ahora TypeScript encontrará la propiedad 'categoria'
     categoria: s.producto?.categoria?.nombre || (s.insumo ? 'Insumos' : 'Sin categoría')
   })).sort((a,b) => a.actual - b.actual).slice(0, 15)
 
@@ -66,10 +64,10 @@ export default async function ReportesPage() {
   }, {} as Record<string, number>)
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto p-4 md:p-6 bg-slate-50/50 min-h-screen">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Centro de Reportes</h1>
-        <p className="text-slate-500">Analiza, visualiza y exporta la información de tu negocio.</p>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Centro de Reportes</h1>
+        <p className="text-muted-foreground">Analiza, visualiza y exporta la información de tu negocio.</p>
       </div>
 
       <ReportesClient 

@@ -131,6 +131,10 @@ export async function getSesionDetalle(sesionId: string) {
     cantidadVentasCompletadas: ventasCompletadas.length,
     cantidadVentasAnuladas: ventasAnuladas.length,
 
+    motivoDiferencia: sesion.motivoDiferencia,
+    comentarioCajero: sesion.comentarioCajero,
+    comentarioAutorizador: sesion.comentarioAutorizador,
+
     estado: sesion.estado,
     cantidadVentas: sesion.ventas.length,
     movimientos: sesion.movimientos.map((m) => ({
