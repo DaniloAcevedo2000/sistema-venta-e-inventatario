@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import PhoneInput from 'react-phone-number-input'
 import 'react-phone-number-input/style.css'
+import { useSession } from 'next-auth/react'
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,7 +20,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { actualizarPerfilAction, cambiarContrasenaAction } from './actions'
-import { useSession } from 'next-auth/react'
+// 🔴 IMPORTAMOS EL HOOK DE UPLOADTHING
+import { useUploadThing } from '@/components/uploadthing' 
 
 type Props = {
   usuario: {
@@ -48,12 +50,9 @@ export function PerfilClient({ usuario }: Props) {
   const [statePass, formPass] = useActionState(cambiarContrasenaAction, undefined)
   
   const [avatar, setAvatar] = React.useState(usuario.avatarUrl)
-  const [subiendo, setSubiendo] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const { update } = useSession()
 
-  // Estados para los inputs controlados
-  // Si el usuario no tiene teléfono, ponemos +505 por defecto (Nicaragua)
   const [telefono, setTelefono] = React.useState<string | undefined>(
     usuario.telefono || '+505'
   )
@@ -72,35 +71,28 @@ export function PerfilClient({ usuario }: Props) {
     if (statePass?.error) toast.error(statePass.error)
   }, [statePass])
 
-const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0]
-  if (!file) return
+  // 🔴 CONFIGURACIÓN DE UPLOADTHING
+  const { startUpload, isUploading } = useUploadThing("avatarUploader", {
+    onClientUploadComplete: async (res) => {
+      if (res && res[0]) {
+        setAvatar(res[0].url)
+        toast.success('Foto actualizada correctamente')
+        // Actualizamos la sesión para que la foto cambie en el NavUser
+        await update({ avatarUrl: res[0].url })
+      }
+    },
+    onUploadError: (error: Error) => {
+      toast.error(`Error al subir la foto: ${error.message}`)
+    },
+  })
 
-  setSubiendo(true)
-  const formData = new FormData()
-  formData.append('file', file)
-
-  try {
-    const res = await fetch('/api/perfil/avatar', {
-      method: 'POST',
-      body: formData,
-    })
-    const data = await res.json()
-    
-    if (!res.ok) throw new Error(data.error)
-    
-    setAvatar(data.avatarUrl)
-    toast.success('Foto actualizada correctamente')
-    
-    // Actualiza la sesión de NextAuth
-    await update({ avatarUrl: data.avatarUrl })
-    
-  } catch (error: any) {
-    toast.error(error.message || 'Error al subir la foto')
-  } finally {
-    setSubiendo(false)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Iniciamos la subida
+    await startUpload([file])
   }
-}
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
       
@@ -124,7 +116,11 @@ const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                 )}
                 
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px]">
-                  {subiendo ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Camera className="h-5 w-5 mb-1" /> Cambiar</>}
+                  {isUploading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <><Camera className="h-5 w-5 mb-1" /> Cambiar</>
+                  )}
                 </div>
               </div>
               <input 
@@ -187,7 +183,6 @@ const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                 
                 <div className="space-y-2">
                   <Label>Teléfono</Label>
-                  {/* INPUT DE TELÉFONO CON BANDERITA Y +505 */}
                   <PhoneInput
                     international
                     defaultCountry="NI"
@@ -195,7 +190,6 @@ const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     onChange={setTelefono}
                     className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   />
-                  {/* Input oculto para que el FormData lo capture */}
                   <input type="hidden" name="telefono" value={telefono || ''} />
                   {statePerfil?.fieldErrors?.telefono && <span className="text-xs text-destructive">{statePerfil.fieldErrors.telefono[0]}</span>}
                 </div>
