@@ -22,6 +22,7 @@ import {
   FileText,
   Navigation,
   ShieldAlert,
+  Bot,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -78,6 +79,7 @@ export const navGroups: NavGroup[] = [
     title: 'Análisis',
     items: [
       { title: 'Reportes', href: '/reportes', icon: BarChart3, permission: 'reportes:ver' },
+      { title: 'Asistente IA', href: '/asistente', icon: Bot, permission: 'reportes:ver' },
     ],
   },
   {
